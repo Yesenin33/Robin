@@ -1,4 +1,4 @@
-"""Lightweight market data used outside full CRAWLSCAN scans (portfolio pricing)."""
+"""Lightweight market data used outside full token scans (portfolio pricing)."""
 import json
 
 import httpx

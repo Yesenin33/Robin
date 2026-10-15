@@ -21,9 +21,14 @@ class Settings(BaseSettings):
     rpc_url: str = "https://rpc.chain.robinhood.com"
     native_symbol: str = "ETH"
 
-    # CRAWLSCAN engine: path on disk + "module:function" entrypoint returning a dict report
-    crawlscan_path: str = "/opt/crawlscan"
-    crawlscan_entry: str = "crawlscan:scan"
+    chain_name: str = "robinhood"
+    explorer_api_url: str = ""  # Blockscout-compatible; empty = holders from Transfer-log replay
+    dexscreener_chain: str = "robinhood"
+    geckoterminal_network: str = "robinhood"
+    holder_scan_blocks: int = 200_000
+
+    # Token analytics: "intelligence" (in-repo, default) | "builtin" (market-only, offline dev)
+    scan_engine: str = "intelligence"
     scan_timeout_s: int = 60
 
     # Auth

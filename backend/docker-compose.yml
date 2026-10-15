@@ -2,9 +2,6 @@ x-app: &app
   build: .
   env_file: .env
   restart: unless-stopped
-  volumes:
-    # existing CRAWLSCAN engine, imported read-only
-    - ${CRAWLSCAN_HOST_PATH:-/root/crawlscan}:/opt/crawlscan:ro
   depends_on:
     postgres: { condition: service_healthy }
     redis: { condition: service_healthy }

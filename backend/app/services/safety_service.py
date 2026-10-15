@@ -1,4 +1,4 @@
-"""Turns a CRAWLSCAN report into the plain-language verdict shown on the Safety screen."""
+"""Turns an intelligence scan into the plain-language verdict shown on the Safety screen."""
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
@@ -12,6 +12,7 @@ from app.core.logging import get_logger
 from app.models import HoldersSnapshot, SafetyScore, Token
 from app.schemas.safety import Metric, SafetyOut
 from app.services.engine import ScanEngine, ScanReport
+from app.services.intelligence.scoring import sell_impact_pct
 from app.services.rpc import norm
 
 log = get_logger(__name__)
@@ -24,77 +25,9 @@ class ScanInProgress(Exception):
     pass
 
 
-# ---------- pure scoring (unit-tested) ----------
-
-def sell_impact_pct(top_holder_pct: float | None, fdv_usd: float | None, liquidity_usd: float | None) -> float | None:
-    """Price drop if the top holder market-sells into a constant-product (x*y=k) pool.
-
-    pool quote side = L/2; seller dumps X = top% * FDV of value.
-    price_after / price_before = (Q / (Q + X))^2
-    """
-    if top_holder_pct is None or not fdv_usd or not liquidity_usd:
-        return None
-    q = liquidity_usd / 2
-    x = top_holder_pct / 100 * fdv_usd
-    return round((1 - (q / (q + x)) ** 2) * 100, 1)
-
-
-def fallback_score(r: ScanReport) -> int:
-    """Used only when the engine didn't return its own 0-100 score."""
-    score = 70
-    if r.liquidity_usd is not None:
-        score += 10 if r.liquidity_usd >= 500_000 else -25 if r.liquidity_usd < 20_000 else 0
-    if r.real_hands_pct is not None:
-        score += int((r.real_hands_pct - 70) / 2)
-    if r.top_holder_pct is not None and r.top_holder_pct > 20:
-        score -= int(r.top_holder_pct - 20)
-    if r.can_mint:
-        score -= 15
-    if r.has_site is False and r.has_twitter is False:
-        score -= 10
-    return max(0, min(100, score))
-
-
-def risk_lines(r: ScanReport, impact: float | None) -> tuple[list[str], bool]:
-    """Returns (plain-language risks, critical)."""
-    lines: list[str] = []
-    critical = False
-    if r.honeypot:
-        lines.append("You may not be able to sell this token.")
-        critical = True
-    if r.sell_tax is not None and r.sell_tax >= 10:
-        lines.append(f"Selling costs a {r.sell_tax:.0f}% fee.")
-        critical = critical or r.sell_tax >= 30
-    if r.can_mint:
-        lines.append("The creator can print more of it at any time.")
-    if r.blacklist:
-        lines.append("The creator can block wallets from selling.")
-        critical = True
-    if r.owner_renounced is False:
-        lines.append("The creator still controls the contract.")
-    if r.top_holder_pct is not None and r.top_holder_pct >= 50:
-        lines.append("One wallet owns most of it.")
-        critical = True
-    elif r.top_holder_pct is not None and r.top_holder_pct >= 20:
-        lines.append("A few wallets hold a big share.")
-    if r.real_hands_pct is not None and r.real_hands_pct < 50:
-        lines.append("Most holders look like bots or linked wallets.")
-    if impact is not None and impact >= 30:
-        lines.append(f"It could drop {impact:.0f}% if the top holder sells.")
-    if r.liquidity_usd is not None and r.liquidity_usd < 20_000:
-        lines.append("Hard to sell at any price — very little liquidity.")
-    if r.has_site is False and r.has_twitter is False:
-        lines.append("No website or Twitter found.")
-    return lines, critical
-
-
-def verdict_for(score: int, critical: bool) -> str:
-    if critical or score < 40:
-        return DANGER
-    if score < 70:
-        return RISKY
-    return CLEAN
-
+# ---------- presentation (unit-tested) ----------
+# Score, verdict and risk lines come from intelligence.scoring via the scan result;
+# this module only turns them into the Safety screen: summary + exactly 4 metrics.
 
 SUMMARY = {
     CLEAN: "Looks healthy. Lots of real people hold it and no one holder can move the price much.",
@@ -137,10 +70,9 @@ def build_metrics(r: ScanReport, impact: float | None) -> list[Metric]:
 
 
 def evaluate(r: ScanReport) -> SafetyOut:
-    impact = sell_impact_pct(r.top_holder_pct, r.fdv_usd, r.liquidity_usd)
-    score = r.score if r.score is not None else fallback_score(r)
-    risks, critical = risk_lines(r, impact)
-    verdict = verdict_for(score, critical)
+    impact = sell_impact_pct(r.top_holder_pct, r.fdv, r.liquidity_usd)
+    risks = list(r.risks)
+    score, verdict = r.safety_score, r.verdict
     summary = SUMMARY[verdict]
     if verdict == RISKY and risks:
         summary = f"Proceed with care. {risks[0]}"
@@ -148,7 +80,7 @@ def evaluate(r: ScanReport) -> SafetyOut:
         summary = f"Very likely a scam. {' '.join(risks[:2])} Avoid."
     return SafetyOut(
         address=r.address, symbol=r.symbol, name=r.name, score=score, verdict=verdict,
-        swarm_verdict=r.swarm_verdict, summary=summary, risks=risks, metrics=build_metrics(r, impact),
+        swarm_verdict=None, summary=summary, risks=risks, metrics=build_metrics(r, impact),
         buy_recommended=verdict != DANGER, price_usd=r.price_usd, scanned_at=datetime.now(timezone.utc),
     )
 
@@ -183,7 +115,8 @@ class SafetyService:
             out = evaluate(report)
             await self._persist(report, out)
             await self._cache(out)
-            log.info("safety_scanned", ca=ca, engine=self.engine.name, score=out.score, verdict=out.verdict)
+            log.info("safety_scanned", ca=ca, engine=report.engine or self.engine.name, sources=report.sources,
+                     errors=report.errors, score=out.score, verdict=out.verdict)
             return out
         finally:
             await self.redis.delete(lock)

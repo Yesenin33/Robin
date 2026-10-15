@@ -22,7 +22,7 @@ class Token(IdMixin, TimestampMixin, Base):
 
 
 class HoldersSnapshot(IdMixin, Base):
-    """Holder distribution for a token at a point in time (from CRAWLSCAN or indexer)."""
+    """Holder distribution for a token at a point in time (from intelligence scan or indexer)."""
 
     __tablename__ = "holders_snapshots"
 
@@ -33,7 +33,7 @@ class HoldersSnapshot(IdMixin, Base):
     top_holder_pct: Mapped[float | None] = mapped_column(Numeric(6, 2))
     # [{address, pct, operator_id, label}]
     top_holders: Mapped[list | None] = mapped_column(JSON)
-    # CRAWLSCAN operator clusters
+    # operator clusters (linked wallets)
     operators: Mapped[list | None] = mapped_column(JSON)
 
 
