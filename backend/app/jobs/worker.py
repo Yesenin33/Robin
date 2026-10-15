@@ -7,6 +7,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.core.redis import get_redis
+from app.jobs.copy_job import collect as collect_copy
 from app.jobs.scan_job import drain_queue, refresh_stale
 from app.jobs.snapshot_job import snapshot_positions
 
@@ -21,6 +22,7 @@ async def main() -> None:
     sched.add_job(drain_queue, "interval", seconds=5, args=[redis], max_instances=1, coalesce=True)
     sched.add_job(refresh_stale, "interval", minutes=s.safety_refresh_min, args=[redis], max_instances=1)
     sched.add_job(snapshot_positions, "interval", minutes=s.position_snapshot_min, args=[redis], max_instances=1)
+    sched.add_job(collect_copy, "interval", minutes=2, args=[redis], max_instances=1, coalesce=True)
     sched.start()
     log.info("worker_started")
 

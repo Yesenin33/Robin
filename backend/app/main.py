@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, portfolio, safety
+from app.api import auth, copy, portfolio, safety
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 
@@ -20,6 +20,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(portfolio.router)
 app.include_router(safety.router)
+app.include_router(copy.router)
 
 
 @app.get("/health", tags=["meta"])
