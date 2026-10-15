@@ -1,0 +1,55 @@
+x-app: &app
+  build: .
+  env_file: .env
+  restart: unless-stopped
+  volumes:
+    # existing CRAWLSCAN engine, imported read-only
+    - ${CRAWLSCAN_HOST_PATH:-/root/crawlscan}:/opt/crawlscan:ro
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chainfolio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chainfolio}
+      POSTGRES_DB: chainfolio
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chainfolio"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+
+  api:
+    <<: *app
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.jobs.worker"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+volumes:
+  pgdata:
+  redisdata:

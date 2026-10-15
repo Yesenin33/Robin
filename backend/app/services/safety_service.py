@@ -1,0 +1,242 @@
+"""Turns a CRAWLSCAN report into the plain-language verdict shown on the Safety screen."""
+import asyncio
+import json
+from datetime import datetime, timedelta, timezone
+
+from redis.asyncio import Redis
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.core.logging import get_logger
+from app.models import HoldersSnapshot, SafetyScore, Token
+from app.schemas.safety import Metric, SafetyOut
+from app.services.engine import ScanEngine, ScanReport
+from app.services.rpc import norm
+
+log = get_logger(__name__)
+
+CLEAN, RISKY, DANGER = "CLEAN", "RISKY", "DANGER"
+OK, WARN, BAD = "ok", "warn", "bad"
+
+
+class ScanInProgress(Exception):
+    pass
+
+
+# ---------- pure scoring (unit-tested) ----------
+
+def sell_impact_pct(top_holder_pct: float | None, fdv_usd: float | None, liquidity_usd: float | None) -> float | None:
+    """Price drop if the top holder market-sells into a constant-product (x*y=k) pool.
+
+    pool quote side = L/2; seller dumps X = top% * FDV of value.
+    price_after / price_before = (Q / (Q + X))^2
+    """
+    if top_holder_pct is None or not fdv_usd or not liquidity_usd:
+        return None
+    q = liquidity_usd / 2
+    x = top_holder_pct / 100 * fdv_usd
+    return round((1 - (q / (q + x)) ** 2) * 100, 1)
+
+
+def fallback_score(r: ScanReport) -> int:
+    """Used only when the engine didn't return its own 0-100 score."""
+    score = 70
+    if r.liquidity_usd is not None:
+        score += 10 if r.liquidity_usd >= 500_000 else -25 if r.liquidity_usd < 20_000 else 0
+    if r.real_hands_pct is not None:
+        score += int((r.real_hands_pct - 70) / 2)
+    if r.top_holder_pct is not None and r.top_holder_pct > 20:
+        score -= int(r.top_holder_pct - 20)
+    if r.can_mint:
+        score -= 15
+    if r.has_site is False and r.has_twitter is False:
+        score -= 10
+    return max(0, min(100, score))
+
+
+def risk_lines(r: ScanReport, impact: float | None) -> tuple[list[str], bool]:
+    """Returns (plain-language risks, critical)."""
+    lines: list[str] = []
+    critical = False
+    if r.honeypot:
+        lines.append("You may not be able to sell this token.")
+        critical = True
+    if r.sell_tax is not None and r.sell_tax >= 10:
+        lines.append(f"Selling costs a {r.sell_tax:.0f}% fee.")
+        critical = critical or r.sell_tax >= 30
+    if r.can_mint:
+        lines.append("The creator can print more of it at any time.")
+    if r.blacklist:
+        lines.append("The creator can block wallets from selling.")
+        critical = True
+    if r.owner_renounced is False:
+        lines.append("The creator still controls the contract.")
+    if r.top_holder_pct is not None and r.top_holder_pct >= 50:
+        lines.append("One wallet owns most of it.")
+        critical = True
+    elif r.top_holder_pct is not None and r.top_holder_pct >= 20:
+        lines.append("A few wallets hold a big share.")
+    if r.real_hands_pct is not None and r.real_hands_pct < 50:
+        lines.append("Most holders look like bots or linked wallets.")
+    if impact is not None and impact >= 30:
+        lines.append(f"It could drop {impact:.0f}% if the top holder sells.")
+    if r.liquidity_usd is not None and r.liquidity_usd < 20_000:
+        lines.append("Hard to sell at any price — very little liquidity.")
+    if r.has_site is False and r.has_twitter is False:
+        lines.append("No website or Twitter found.")
+    return lines, critical
+
+
+def verdict_for(score: int, critical: bool) -> str:
+    if critical or score < 40:
+        return DANGER
+    if score < 70:
+        return RISKY
+    return CLEAN
+
+
+SUMMARY = {
+    CLEAN: "Looks healthy. Lots of real people hold it and no one holder can move the price much.",
+    RISKY: "Proceed with care.",
+    DANGER: "Very likely a scam. Avoid.",
+}
+
+
+def _money(v: float) -> str:
+    if v >= 1_000_000:
+        return f"${v / 1_000_000:.1f}M"
+    if v >= 1_000:
+        return f"${v / 1_000:.0f}K"
+    return f"${v:.0f}"
+
+
+def build_metrics(r: ScanReport, impact: float | None) -> list[Metric]:
+    m: list[Metric] = []
+    hc = r.holders_count
+    m.append(Metric(key="holders", label="Holders", emoji="👥", value=f"{hc:,}" if hc is not None else "—",
+                    tone=(BAD if hc is not None and hc < 200 else OK),
+                    hint="Very few owners" if hc is not None and hc < 200 else "People who own it"))
+    rh = r.real_hands_pct
+    rh_tone = OK if rh is None or rh >= 80 else WARN if rh >= 50 else BAD
+    rh_hint = ("Not bots or linked wallets" if rh_tone == OK
+               else f"About {round((100 - rh) / 10)} in 10 look like bots" if rh_tone == WARN else "Most look fake")
+    m.append(Metric(key="real_hands", label="Real hands", emoji="✋", value=f"{rh:.0f}%" if rh is not None else "—",
+                    tone=rh_tone, hint=rh_hint))
+    it = OK if impact is None or impact < 20 else WARN if impact < 70 else BAD
+    m.append(Metric(key="top_holder_sell", label="If top holder sells", emoji="📉",
+                    value=f"-{impact:.0f}%" if impact is not None else "—", tone=it,
+                    hint=("Price could nearly vanish" if it == BAD
+                          else f"Price could drop about {impact:.0f}%" if impact is not None else "Not enough data")))
+    liq = r.liquidity_usd
+    lt = OK if liq is None or liq >= 500_000 else WARN if liq >= 20_000 else BAD
+    m.append(Metric(key="liquidity", label="Liquidity", emoji="💧", value=_money(liq) if liq is not None else "—",
+                    tone=lt, hint={OK: "Easy to sell without a big loss", WARN: "Large sells will move the price",
+                                   BAD: "Hard to sell at any price"}[lt]))
+    return m
+
+
+def evaluate(r: ScanReport) -> SafetyOut:
+    impact = sell_impact_pct(r.top_holder_pct, r.fdv_usd, r.liquidity_usd)
+    score = r.score if r.score is not None else fallback_score(r)
+    risks, critical = risk_lines(r, impact)
+    verdict = verdict_for(score, critical)
+    summary = SUMMARY[verdict]
+    if verdict == RISKY and risks:
+        summary = f"Proceed with care. {risks[0]}"
+    elif verdict == DANGER and risks:
+        summary = f"Very likely a scam. {' '.join(risks[:2])} Avoid."
+    return SafetyOut(
+        address=r.address, symbol=r.symbol, name=r.name, score=score, verdict=verdict,
+        swarm_verdict=r.swarm_verdict, summary=summary, risks=risks, metrics=build_metrics(r, impact),
+        buy_recommended=verdict != DANGER, price_usd=r.price_usd, scanned_at=datetime.now(timezone.utc),
+    )
+
+
+# ---------- orchestration ----------
+
+class SafetyService:
+    def __init__(self, db: AsyncSession, redis: Redis, engine: ScanEngine):
+        self.db, self.redis, self.engine = db, redis, engine
+        self.s = get_settings()
+
+    @staticmethod
+    def cache_key(ca: str) -> str:
+        return f"safety:{ca}"
+
+    async def get(self, ca: str, force: bool = False) -> SafetyOut:
+        ca = norm(ca)
+        if not force:
+            if cached := await self.redis.get(self.cache_key(ca)):
+                return SafetyOut.model_validate_json(cached)
+            if fresh := await self._fresh_from_db(ca):
+                await self._cache(fresh)
+                return fresh
+        return await self.scan(ca)
+
+    async def scan(self, ca: str) -> SafetyOut:
+        lock = f"lock:scan:{ca}"
+        if not await self.redis.set(lock, "1", nx=True, ex=self.s.scan_timeout_s + 5):
+            raise ScanInProgress(ca)
+        try:
+            report = await asyncio.wait_for(asyncio.to_thread(self.engine.scan, ca), self.s.scan_timeout_s)
+            out = evaluate(report)
+            await self._persist(report, out)
+            await self._cache(out)
+            log.info("safety_scanned", ca=ca, engine=self.engine.name, score=out.score, verdict=out.verdict)
+            return out
+        finally:
+            await self.redis.delete(lock)
+
+    async def _cache(self, out: SafetyOut) -> None:
+        await self.redis.set(self.cache_key(out.address), out.model_dump_json(), ex=self.s.safety_cache_ttl_s)
+
+    async def _fresh_from_db(self, ca: str) -> SafetyOut | None:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=self.s.safety_stale_min)
+        row = (await self.db.execute(
+            select(SafetyScore, Token).join(Token, Token.id == SafetyScore.token_id)
+            .where(Token.address == ca).order_by(SafetyScore.ts.desc()).limit(1)
+        )).first()
+        if not row:
+            return None
+        score, token = row
+        ts = score.ts if score.ts.tzinfo else score.ts.replace(tzinfo=timezone.utc)
+        if ts < cutoff:
+            return None
+        return SafetyOut(
+            address=ca, symbol=token.symbol, name=token.name, score=score.score, verdict=score.verdict,
+            swarm_verdict=score.swarm_verdict, summary=score.metrics.get("summary", SUMMARY[score.verdict]),
+            risks=score.risks, metrics=[Metric(**m) for m in score.metrics.get("items", [])],
+            buy_recommended=score.verdict != DANGER,
+            price_usd=float(token.price_usd) if token.price_usd is not None else None, scanned_at=ts,
+        )
+
+    async def _persist(self, r: ScanReport, out: SafetyOut) -> None:
+        token = await upsert_token(self.db, r)
+        self.db.add(HoldersSnapshot(
+            token_id=token.id, holders_count=r.holders_count, real_hands_pct=r.real_hands_pct,
+            top_holder_pct=r.top_holder_pct, top_holders=r.top_holders, operators=r.operators,
+        ))
+        self.db.add(SafetyScore(
+            token_id=token.id, score=out.score, verdict=out.verdict, swarm_verdict=out.swarm_verdict,
+            risks=out.risks,
+            metrics={"summary": out.summary, "items": [m.model_dump() for m in out.metrics]},
+            raw=json.loads(json.dumps(r.raw, default=str)),
+        ))
+        await self.db.commit()
+
+
+async def upsert_token(db: AsyncSession, r: ScanReport) -> Token:
+    token = (await db.execute(select(Token).where(Token.address == r.address))).scalar_one_or_none()
+    if token is None:
+        token = Token(address=r.address)
+        db.add(token)
+    token.symbol = r.symbol or token.symbol
+    token.name = r.name or token.name
+    token.decimals = r.decimals or token.decimals
+    token.pair_address = r.pair_address or token.pair_address
+    token.price_usd = r.price_usd if r.price_usd is not None else token.price_usd
+    token.price_change_24h = r.price_change_24h if r.price_change_24h is not None else token.price_change_24h
+    token.liquidity_usd = r.liquidity_usd if r.liquidity_usd is not None else token.liquidity_usd
+    await db.flush()
+    return token
