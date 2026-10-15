@@ -14,6 +14,7 @@ export function Onboarding() {
   const [email, setEmail] = useState('')
   const [step, setStep] = useState<Step>('form')
   const [error, setError] = useState<string | null>(null)
+  const [showEmail, setShowEmail] = useState(false)
 
   useEffect(() => { if (user) nav('/app/portfolio', { replace: true }) }, [user, nav])
 
@@ -82,16 +83,29 @@ export function Onboarding() {
 
       {step === 'form' && (
         <>
-          <form style={{ display: 'flex', flexDirection: 'column', gap: 12 }} onSubmit={e => { e.preventDefault(); void sendLink() }}>
-            <label className="label" htmlFor="email">E-mail</label>
-            <input id="email" className="input" type="email" inputMode="email" autoComplete="email"
-              placeholder="alex@email.com" value={email} onChange={e => setEmail(e.target.value)} />
-            <button className="btn btn-primary" type="submit">Send me a sign-in link</button>
-          </form>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--faint)', fontSize: 13 }}>
-            <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />or<div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+          <button className="btn btn-primary" style={{ height: 54 }} onClick={() => void connectWallet()}>
+            Connect wallet
+          </button>
+          <div style={{ color: 'var(--muted-2)', fontSize: 13, textAlign: 'center', lineHeight: 1.45 }}>
+            Any Robinhood Chain wallet. Nothing to write down, nothing we can touch.
           </div>
-          <button className="btn btn-ghost" onClick={() => void connectWallet()}>Connect my own wallet</button>
+          {!showEmail ? (
+            <button onClick={() => setShowEmail(true)} style={{ background: 'none', border: 0, color: 'var(--muted-2)', fontSize: 13 }}>
+              Use e-mail instead
+            </button>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--faint)', fontSize: 13 }}>
+                <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />or<div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+              </div>
+              <form style={{ display: 'flex', flexDirection: 'column', gap: 12 }} onSubmit={e => { e.preventDefault(); void sendLink() }}>
+                <label className="label" htmlFor="email">E-mail</label>
+                <input id="email" className="input" type="email" inputMode="email" autoComplete="email"
+                  placeholder="alex@email.com" value={email} onChange={e => setEmail(e.target.value)} />
+                <button className="btn btn-ghost" type="submit">Send me a sign-in link</button>
+              </form>
+            </>
+          )}
         </>
       )}
 
