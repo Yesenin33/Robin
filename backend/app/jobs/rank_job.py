@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.core.logging import get_logger
 from app.core.redis import get_redis
+from app.jobs.copy_job import enqueue_backfill
 from app.jobs.discovery_job import tracked_tokens
 from app.models import SmartWallet
 from app.services import chain_index, pricing, smart_wallets
@@ -39,8 +40,8 @@ async def rank_wallets(redis: Redis | None = None, rpc=None) -> int:
     candidates = sorted({t.wallet for t in trades})
     codes = await asyncio.to_thread(rpc.codes, candidates) if candidates else {}
     contracts = {a for a, c in codes.items() if c not in ("0x", "0x0")} | {POOL_MANAGER}
-    ranked = smart_wallets.rank(trades, {t.address: t.pool_init_block for t in tokens if t.pool_init_block},
-                                s.suggested_min_closed, contracts)[:100]
+    ranked = smart_wallets.rank_tiers(trades, {t.address: t.pool_init_block for t in tokens if t.pool_init_block},
+                                      s.suggested_min_closed, s.suggested_fill_to, contracts)[:100]
 
     async with SessionLocal() as db:
         await db.execute(delete(SmartWallet))
@@ -50,6 +51,8 @@ async def rank_wallets(redis: Redis | None = None, rpc=None) -> int:
                                tokens=len(w.tokens), early_buys=w.early_buys, last_block=w.last_block,
                                token_list=w.tokens))
         await db.commit()
+    for w in ranked[: s.spectate_wallets]:  # history for the fresh-account feed (no-op if already backfilled)
+        await enqueue_backfill(redis, w.address)
     valued = sum(t.usd is not None for t in trades)
     log.info("wallets_ranked", tokens=len(tokens), trades=len(trades), valued=valued, ranked=len(ranked))
     return len(ranked)

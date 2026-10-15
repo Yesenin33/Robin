@@ -24,6 +24,11 @@ npm run dev          # http://localhost:3000, /api -> http://localhost:8000
 npm run build        # dist/
 ```
 
+**Wallets:** "Connect wallet" uses an injected wallet when there is one, otherwise WalletConnect through Reown AppKit
+(QR on desktop, deep link into the wallet app on phones; loaded on demand). Set `VITE_WC_PROJECT_ID`
+(free at cloud.reown.com; it is a build-time variable, passed to the `web` image by compose). A session without a
+wallet only sees the "Connect a wallet to continue" step.
+
 Backend `.env`: `FRONTEND_URL=http://localhost:3000` (magic links) and `SIWE_DOMAIN=localhost:3000`.
 
 ## Deploy

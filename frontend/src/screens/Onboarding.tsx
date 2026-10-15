@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { api, ApiError } from '../api/client'
+import { WalletConnectPanel } from '../components/WalletConnect'
 import { useAuth } from '../lib/auth'
 import { isEmail } from '../lib/format'
-import { signInWithWallet } from '../lib/siwe'
 
 type Step = 'form' | 'sending' | 'sent'
 
@@ -38,23 +38,12 @@ export function Onboarding() {
     }
   }
 
-  const connectWallet = async () => {
-    setError(null)
-    setStep('sending')
-    try {
-      login(await signInWithWallet())
-    } catch (e: any) {
-      setStep('form')
-      setError(e?.code === 4001 ? 'You cancelled the request in your wallet.' : e?.message ?? "Couldn't connect your wallet.")
-    }
-  }
-
   return (
     <div className="page">
       <button onClick={() => nav('/')} style={{ alignSelf: 'flex-start', background: 'none', border: 0, color: 'var(--muted-2)', fontSize: 14, padding: 0 }}>← Back</button>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-.02em' }}>Let's get you in</div>
-        <div style={{ color: 'var(--muted)', fontSize: 15, lineHeight: 1.5 }}>We set up your account for you. It takes about 10 seconds.</div>
+        <div style={{ color: 'var(--muted)', fontSize: 15, lineHeight: 1.5 }}>Connect your wallet — it's your account. It takes about 10 seconds.</div>
       </div>
 
       {error && <div className="notice-error" role="alert">{error}</div>}
@@ -83,12 +72,7 @@ export function Onboarding() {
 
       {step === 'form' && (
         <>
-          <button className="btn btn-primary" style={{ height: 54 }} onClick={() => void connectWallet()}>
-            Connect wallet
-          </button>
-          <div style={{ color: 'var(--muted-2)', fontSize: 13, textAlign: 'center', lineHeight: 1.45 }}>
-            Any Robinhood Chain wallet. Nothing to write down, nothing we can touch.
-          </div>
+          <WalletConnectPanel onConnected={login} />
           {!showEmail ? (
             <button onClick={() => setShowEmail(true)} style={{ background: 'none', border: 0, color: 'var(--muted-2)', fontSize: 13 }}>
               Use e-mail instead

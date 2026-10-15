@@ -50,6 +50,8 @@ Scans run in a thread with a timeout, guarded by a Redis lock per token (202 whi
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/auth/magic-link`, GET `/auth/verify` | e-mail sign-in |
+| POST | `/auth/link-token` | one-time token (10 min): another browser attaches its wallet to THIS account (`link_token` on `/auth/siwe`) |
+| POST | `/safety/{ca}/refresh` | priority scan; drops the cached result and the recent-DB-row shortcut until it lands |
 | GET/POST | `/auth/siwe/nonce`, `/auth/siwe` | wallet sign-in (EIP-4361) |
 | GET | `/portfolio/{address}` | holdings, 24h change, PnL |
 | GET | `/safety/{ca}` | verdict + summary + risks + 4 metrics; 202 while scanning |
@@ -70,6 +72,7 @@ Scans run in a thread with a timeout, guarded by a Redis lock per token (202 whi
 |---|---|---|
 | `discover_pools` | 5 min | V4 PoolManager `Initialize` logs from a Redis cursor -> new `tokens` (+ scan queued) |
 | `collect` (copy) | 2 min | followed wallets' swaps in any token since the cursor; ETH leg from receipts; follower alerts |
+| `drain_priority` / `drain_queue` | 1 s / 5 s | user refreshes (own queue, never behind bulk) / bulk scans, `SCAN_CONCURRENCY` at a time, queue capped at `SCAN_QUEUE_MAX` |
 | `drain_backfill` | 20 s | first-follow history: explorer token-transfers, RPC log scan if the explorer is down |
 | `rank_wallets` | 60 min | realised **USD** PnL x hit rate over the newest pools -> `smart_wallets` (quote legs valued via `QUOTE_TOKENS`) |
 | `warmup` | 2 min | re-scan the most requested tokens before their cached verdict expires |

@@ -31,8 +31,13 @@ async def feed(
     only_followed: bool = Query(False, description="only wallets I follow"),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
 ):
-    return await copy_service.feed(db, user.id, limit, only_followed)
+    items = await copy_service.feed(db, user.id, limit, only_followed)
+    if not items and not only_followed:  # nothing yet for the top wallets: pull their history in the background
+        for address in await copy_service.top_suggested(db, 5):
+            await enqueue_backfill(redis, address)
+    return items
 
 
 @router.get("/suggested", response_model=list[SuggestedOut])

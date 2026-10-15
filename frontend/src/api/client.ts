@@ -40,7 +40,9 @@ export const api = {
   magicLink: (email: string) => post<{ sent: boolean }>('/auth/magic-link', { email }),
   verify: (token: string) => get<TokenOut>(`/auth/verify?token=${encodeURIComponent(token)}`),
   siweNonce: () => get<{ nonce: string }>('/auth/siwe/nonce'),
-  siwe: (message: string, signature: string) => post<TokenOut>('/auth/siwe', { message, signature }),
+  siwe: (message: string, signature: string, link_token?: string) =>
+    post<TokenOut>('/auth/siwe', { message, signature, link_token }),
+  linkToken: () => post<{ token: string; expires_in: number }>('/auth/link-token'),
   me: () => get<User>('/auth/me'),
 
   portfolio: (address: string) => get<Portfolio>(`/portfolio/${address}`),

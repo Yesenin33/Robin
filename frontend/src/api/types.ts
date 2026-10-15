@@ -40,6 +40,8 @@ export interface Safety {
   buy_recommended: boolean
   price_usd: number | null
   scanned_at: string
+  holders_stale_at?: string | null  // holder data is the last good snapshot (explorer was busy)
+  stale?: boolean  // a requested fresh scan failed; this is the previous result
 }
 export interface ScanQueued { address: string; queued: true }
 

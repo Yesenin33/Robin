@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     rpc_fallback_urls: str = ""  # comma-separated, tried in order when RPC_URL fails (e.g. Alchemy first)
     explorer_proxy_key: str = ""  # bearer key for the explorer read proxy (r.jina.ai API key)
 
+    # Scan queues
+    scan_queue_max: int = 300  # bulk queue length cap; overflow is dropped and picked up by refresh_stale later
+    scan_concurrency: int = 4  # scans run at once per drain
+    scan_bulk_per_tick: int = 8  # bulk scans started per 5 s tick
+    refresh_batch: int = 40  # stale tokens enqueued per refresh_stale run
+    refresh_marker_ttl_s: int = 180  # "user asked for a fresh scan" marker (skips cache + DB shortcut)
+    explorer_rpm: int = 0  # explorer reads per minute across all threads; 0 = auto (20 anonymous, 200 with key)
+
     # Jobs
     safety_refresh_min: int = 30
     safety_stale_min: int = 60
@@ -76,10 +84,12 @@ class Settings(BaseSettings):
     copy_lookback_blocks: int = 20_000  # first run of the live copy collector
     backfill_blocks: int = 1_000_000  # RPC backfill depth on first follow when the explorer is down
     backfill_pages: int = 4  # explorer pages (50 transfers each) per first-follow backfill
-    rank_tokens: int = 15  # tokens analysed per smart-wallet ranking run
-    rank_swaps_per_token: int = 300
-    rank_window_blocks: int = 500_000
-    suggested_min_closed: int = 2  # closed positions a wallet needs before we suggest it
+    rank_tokens: int = 40  # tokens analysed per smart-wallet ranking run
+    rank_swaps_per_token: int = 800
+    rank_window_blocks: int = 600_000
+    suggested_min_closed: int = 2  # closed positions for a "strong" suggestion
+    suggested_fill_to: int = 20  # below this many, top up with wallets that have only 1 closed (winning) trade
+    spectate_wallets: int = 10  # top suggested wallets whose trades are collected for every user
 
     # Alerts
     alerts_per_hour: int = 10  # push/Telegram deliveries per user per hour (in-app list is unlimited)

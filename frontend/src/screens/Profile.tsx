@@ -75,10 +75,11 @@ export function Profile() {
   }
 
   const plus = user?.plan === 'plus'
-  const account = user?.email ?? (user?.wallets[0] ? shortAddr(user.wallets[0].address) : '')
+  const wallet = user?.wallets[0]?.address
+  const account = wallet ? shortAddr(wallet) : (user?.email ?? 'No wallet')
   const toggles = [
     { label: 'Phone alerts', sub: 'Web Push · risky moves in your holdings', on: channels.push, flip: flipPush },
-    { label: 'Telegram alerts', sub: channels.telegram ? 'Connected — alerts arrive in Telegram' : 'Get alerts in your Telegram chat',
+    { label: 'Telegram alerts', sub: channels.telegram ? 'Connected — alerts arrive in Telegram' : 'Not connected — tap to connect',
       on: channels.telegram, flip: flipTelegram },
   ]
   const settings = [
@@ -91,6 +92,11 @@ export function Profile() {
   return (
     <div className="app-page">
       <div className="h1">Profile</div>
+      {!wallet && (
+        <div className="notice-error" style={{ background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--muted)' }}>
+          No wallet connected — connect one to see your portfolio and get alerts.
+        </div>
+      )}
       {plus ? (
         <div style={{ background: 'var(--green-soft)', border: '1px solid #14501F', borderRadius: 22, padding: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

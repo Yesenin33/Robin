@@ -16,6 +16,14 @@ class NonceOut(BaseModel):
 class SiweIn(BaseModel):
     message: str
     signature: str
+    # one-time token from POST /auth/link-token: lets a browser session attach its wallet to the account
+    # that issued it (Telegram Mini App -> "open in browser") without sharing a session
+    link_token: str | None = None
+
+
+class LinkTokenOut(BaseModel):
+    token: str
+    expires_in: int
 
 
 class WalletOut(BaseModel):

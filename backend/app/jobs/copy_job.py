@@ -44,8 +44,10 @@ async def _store(redis: Redis, rpc, trades: list[Trade], alert: bool) -> int:
 async def collect(redis: Redis, rpc=None) -> int:
     s = get_settings()
     async with SessionLocal() as db:
-        wallets = sorted({a for (a,) in (await db.execute(
-            select(CopyTarget.address).where(CopyTarget.active.is_(True)).distinct())).all()})
+        followed = {a for (a,) in (await db.execute(
+            select(CopyTarget.address).where(CopyTarget.active.is_(True)).distinct())).all()}
+        # top suggested wallets are collected for everyone: they feed the fresh-account Copy screen
+        wallets = sorted(followed | set(await copy_service.top_suggested(db, s.spectate_wallets)))
     if not wallets:
         return 0
     rpc = rpc or make_rpc()

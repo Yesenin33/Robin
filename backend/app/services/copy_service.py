@@ -6,7 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import CopyEvent, CopyTarget, SafetyScore, Token
+from app.core.config import get_settings
+from app.models import CopyEvent, CopyTarget, SafetyScore, SmartWallet, Token
 from app.services.chain_index import Trade
 from app.services.intelligence import contract
 from app.services.intelligence.rpc import Rpc
@@ -32,7 +33,7 @@ def describe(side: str, token_amount: float | None, symbol: str, usd: float | No
     """(reason, risk_tag) — the action, then what our latest safety check says about the token."""
     verb = "Bought" if side == "buy" else "Sold"
     what = f"{_amount(token_amount)} {symbol}" if token_amount else symbol
-    price = f" for ${usd:,.0f}" if usd else f" for {eth:.4g} ETH" if eth else ""
+    price = f" for ${usd:,.2f}" if usd else f" for {eth:.4g} ETH" if eth else ""
     action = f"{verb} {what}{price}."
     if verdict is None:
         return f"{action} We haven't safety-checked this token yet.", "medium"
@@ -101,7 +102,14 @@ async def followers(db: AsyncSession, wallet: str) -> list[int]:
     return [u for (u,) in rows.all()]
 
 
+async def top_suggested(db: AsyncSession, n: int) -> list[str]:
+    rows = await db.execute(select(SmartWallet.address).order_by(SmartWallet.score.desc()).limit(n))
+    return [a for (a,) in rows.all()]
+
+
 async def feed(db: AsyncSession, user_id: int, limit: int, only_followed: bool) -> list[dict]:
+    """Followed wallets' moves. A user who follows nobody gets the newest moves of the top suggested wallets,
+    so the Copy screen is never empty on a fresh account (`only_followed` opts out of that)."""
     followed = {a for (a,) in (await db.execute(select(CopyTarget.address).where(
         CopyTarget.user_id == user_id, CopyTarget.active.is_(True)))).all()}
     q = select(CopyEvent, Token).join(Token, Token.address == CopyEvent.token_address, isouter=True)
@@ -109,6 +117,9 @@ async def feed(db: AsyncSession, user_id: int, limit: int, only_followed: bool) 
         if not followed:
             return []
         q = q.where(CopyEvent.address.in_(followed))
+    elif not followed:
+        if top := await top_suggested(db, get_settings().spectate_wallets):
+            q = q.where(CopyEvent.address.in_(top))
     rows = (await db.execute(q.order_by(CopyEvent.ts.desc()).limit(limit))).all()
     safety = await latest_safety(db, [t.id for _, t in rows if t is not None])
     out = []

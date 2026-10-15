@@ -36,6 +36,16 @@ def proxy_key() -> str:
     return _overrides.get("EXPLORER_PROXY_KEY") or os.environ.get("EXPLORER_PROXY_KEY", "").strip()
 
 
+def explorer_base() -> str:
+    return _env("EXPLORER_API_URL", "https://robinhoodchain.blockscout.com").rstrip("/")
+
+
+def explorer_rpm() -> int:
+    """Explorer reads per minute, shared by every thread. Free r.jina.ai allows ~20; with a key ~200."""
+    configured = int(_env("EXPLORER_RPM", "0") or 0)
+    return configured if configured > 0 else (200 if proxy_key() else 20)
+
+
 def proxy_prefix() -> str:
     return _proxy_prefix or os.environ.get("EXPLORER_PROXY_PREFIX", "").strip()
 

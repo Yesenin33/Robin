@@ -5,7 +5,7 @@ import { api, isQueued } from '../api/client'
 import type { Metric, Safety as SafetyT, Verdict } from '../api/types'
 import { EmptyState, ErrorState, Skeleton } from '../components/States'
 import { Avatar, toast } from '../components/ui'
-import { isAddress, shortAddr } from '../lib/format'
+import { ago, isAddress, shortAddr } from '../lib/format'
 import { swapUrl } from '../lib/swap'
 import { useAsync } from '../lib/useAsync'
 
@@ -126,6 +126,12 @@ function SafetyView({ ca }: { ca: string }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         {s.metrics.map(m => <MetricCard key={m.key} m={m} />)}
       </div>
+      {(s.holders_stale_at || s.stale) && (
+        <div style={{ fontSize: 12, color: 'var(--muted-2)', textAlign: 'center', lineHeight: 1.4 }}>
+          {s.holders_stale_at ? `Holder numbers are from ${ago(s.holders_stale_at)} — we'll update them shortly.`
+            : "We couldn't refresh this just now, so this is the previous check."}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 4 }}>
         <button className="btn btn-primary" style={{ height: 54 }} onClick={() => trade('buy')}>Buy</button>

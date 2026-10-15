@@ -36,7 +36,7 @@ async def on_copy_events(db: AsyncSession, redis: Redis, events: list[CopyEvent]
     n = 0
     for ev in events:
         symbol = (ev.meta or {}).get("symbol") or ev.token_address[:8]
-        usd = f" (${float(ev.amount_usd):,.0f})" if ev.amount_usd is not None else ""
+        usd = f" (${float(ev.amount_usd):,.2f})" if ev.amount_usd is not None else ""
         for uid in await copy_service.followers(db, ev.address):
             title = f"{_short(ev.address)} {'bought' if ev.side == 'buy' else 'sold'} {symbol}{usd}"
             if await create(db, redis, uid, "copy_event", title,

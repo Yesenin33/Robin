@@ -7,6 +7,7 @@ import { toast, Toaster } from './components/ui'
 import { useAuth } from './lib/auth'
 import { linkTelegramWebApp } from './lib/telegram'
 import { AuthCallback } from './screens/AuthCallback'
+import { ConnectGate } from './screens/ConnectGate'
 import { Copy } from './screens/Copy'
 import { Landing } from './screens/Landing'
 import { Onboarding } from './screens/Onboarding'
@@ -21,6 +22,8 @@ function AppLayout() {
   const { user, ready } = useAuth()
   if (!ready) return <div className="center-state"><div className="spinner" /></div>
   if (!user) return <Navigate to="/login" replace />
+  // wallet = identity: a session without a wallet gets one blocking step instead of the app
+  if (user.wallets.length === 0) return <div className="scroll"><ConnectGate /></div>
   return (
     <>
       <div className="scroll"><Outlet /></div>

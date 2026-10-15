@@ -1,10 +1,13 @@
 import json
+import random
+import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from typing import Any
 
-from app.services.intelligence.config import proxy_key, proxy_prefix
+from app.services.intelligence.config import explorer_base, explorer_rpm, proxy_key, proxy_prefix
 
 UA = {"User-Agent": "chainfolio-intelligence/1.0", "Accept": "application/json"}
 
@@ -36,6 +39,64 @@ def _unwrap(text: str) -> Any:
     return obj
 
 
+class Pacer:
+    """Process-wide spacing of explorer reads (scans run in threads). Slots are reserved under a lock and
+    slept for outside it, so concurrent scans line up instead of bursting the proxy.
+
+    Two lanes: user-requested scans (priority) take the next slot without waiting behind queued bulk work,
+    and push bulk back by one slot so the overall rate stays at `rpm`. A 429 delays both lanes."""
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
+                 jitter: Callable[[], float] = lambda: random.uniform(1.0, 1.15)):
+        self._lock = threading.Lock()
+        self._clock, self._sleep, self._jitter = clock, sleep, jitter
+        self._next_bulk = self._next_prio = 0.0
+
+    def acquire(self, priority: bool, rpm: int) -> float:
+        interval = 60.0 / max(rpm, 1) * self._jitter()
+        with self._lock:
+            now = self._clock()
+            if priority:
+                slot = max(now, self._next_prio)
+                self._next_prio = slot + interval
+                self._next_bulk = max(self._next_bulk, slot) + interval
+            else:
+                slot = max(now, self._next_bulk, self._next_prio)
+                self._next_bulk = slot + interval
+        delay = max(slot - now, 0.0)
+        if delay:
+            self._sleep(delay)
+        return delay
+
+    def penalize(self, seconds: float) -> None:
+        with self._lock:
+            until = self._clock() + seconds
+            self._next_bulk, self._next_prio = max(self._next_bulk, until), max(self._next_prio, until)
+
+
+PACER = Pacer()
+_local = threading.local()
+BACKOFF_CAP = 30.0
+
+
+def set_priority(priority: bool) -> None:
+    """Mark the current thread's explorer reads as user-requested (called by the scan wrapper)."""
+    _local.priority = priority
+
+
+def is_explorer(url: str) -> bool:
+    base = explorer_base()
+    return bool(base) and url.startswith(base)
+
+
+def backoff_seconds(attempt: int, retry_after: str | None, rand: Callable[[], float] = random.random) -> float:
+    """Jittered exponential backoff (2, 4, 8 ... capped); a Retry-After from the proxy is a floor."""
+    base = min(2.0 * 2**attempt, BACKOFF_CAP)
+    if retry_after and retry_after.strip().isdigit():
+        base = max(base, min(float(retry_after), BACKOFF_CAP))
+    return base * (0.75 + 0.5 * rand())
+
+
 def _read(url: str, timeout: float, tries: int) -> Any:
     proxy = proxy_prefix()
     target = f"{proxy.rstrip('/')}/{url}" if proxy else url
@@ -43,21 +104,34 @@ def _read(url: str, timeout: float, tries: int) -> Any:
     if proxy and (key := proxy_key()):
         headers["Authorization"] = f"Bearer {key}"
     req = urllib.request.Request(target, headers=headers)
+    paced = is_explorer(url)
     last: Exception | None = None
     for attempt in range(tries):
+        if paced:
+            PACER.acquire(getattr(_local, "priority", False), explorer_rpm())
+        wait = 1.5 * (attempt + 1)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
                 raw = r.read().decode("utf-8", "replace")
             return _unwrap(raw) if proxy else json.loads(raw)
+        except urllib.error.HTTPError as e:
+            last = e
+            if e.code not in (429, 500, 502, 503, 504):
+                break  # 404 and friends won't change on retry
+            wait = backoff_seconds(attempt, e.headers.get("Retry-After") if e.headers else None)
+            if paced and e.code == 429:
+                PACER.penalize(wait)  # everybody backs off, not just this thread
+                wait = 0.0  # the next acquire() sleeps until the penalty ends
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
             last = e
-            if attempt < tries - 1:
-                time.sleep(1.5 * (attempt + 1))
+        if attempt < tries - 1 and wait:
+            time.sleep(wait)
     raise HttpError(f"GET {url}: {last}") from last
 
 
 def get_json(url: str, timeout: float = 20, tries: int = 3) -> Any:
-    return _read(url, timeout, tries)
+    # explorer reads get one more attempt: a 429 burst usually clears within seconds
+    return _read(url, timeout, tries + 1 if is_explorer(url) else tries)
 
 
 def post_json(url: str, payload: Any, timeout: float = 15, tries: int = 2) -> Any:

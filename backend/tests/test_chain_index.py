@@ -84,7 +84,7 @@ def test_rank_in_usd_skips_unvalued_and_counts_early_buys():
     a = ranked[0]
     assert (a.wins, a.losses, a.early_buys, len(a.tokens)) == (2, 0, 1, 2)
     assert round(a.realised_pnl_usd, 6) == 3500.0 and round(a.invested_usd, 6) == 4000.0
-    assert smart_wallets.describe(a) == ("Made +$3,500 in realised profit; 2 of 2 closed trades were wins across "
+    assert smart_wallets.describe(a) == ("Made +$3,500.00 in realised profit; 2 of 2 closed trades were wins across "
                                          "2 tokens. Bought early in 1 new token.")
 
 

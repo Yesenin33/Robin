@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from app.api.deps import safety_service
 from app.core.ratelimit import rate_limit
 from app.core.redis import get_redis
-from app.jobs.scan_job import enqueue_scan, record_hit
+from app.jobs.scan_job import record_hit, request_refresh
 from app.schemas.safety import SafetyOut, ScanQueued
 from app.core.logging import get_logger
 from app.services.intelligence import ScanUnavailable
@@ -33,6 +33,7 @@ async def get_safety(ca: str = CA, svc: SafetyService = Depends(safety_service))
 
 @router.post("/{ca}/refresh", response_model=ScanQueued, status_code=202)
 async def refresh_safety(ca: str = CA):
-    """Queue a fresh scan for the background worker."""
-    await enqueue_scan(get_redis(), ca.lower())
+    """Fresh scan, ahead of the bulk queue. Drops the cached result and the recent-DB-row shortcut, so the
+    next GET returns the new scan (202 while it runs) instead of the previous row."""
+    await request_refresh(get_redis(), ca.lower())
     return ScanQueued(address=ca.lower())

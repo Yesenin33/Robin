@@ -44,7 +44,22 @@ class AuthService:
         await self.redis.set(f"siwe:{nonce}", "1", ex=self.s.siwe_nonce_ttl_s)
         return nonce
 
-    async def siwe_login(self, message: str, signature: str, current_user: User | None = None) -> TokenOut:
+    LINK_TTL = 600
+
+    async def issue_link_token(self, user: User) -> str:
+        token = new_token(24)
+        await self.redis.set(f"link:{token}", str(user.id), ex=self.LINK_TTL)
+        return token
+
+    async def resolve_link_token(self, token: str) -> User:
+        uid = await self.redis.getdel(f"link:{token}")  # single use
+        user = await self.db.get(User, int(uid)) if uid else None
+        if user is None:
+            raise AuthError("This link has expired. Open Chainfolio in Telegram and try again.")
+        return user
+
+    async def siwe_login(self, message: str, signature: str, current_user: User | None = None,
+                         link_token: str | None = None) -> TokenOut:
         try:
             parsed = siwe.parse(message)
         except siwe.SiweError as e:
@@ -56,10 +71,19 @@ class AuthService:
         except siwe.SiweError as e:
             raise AuthError(str(e)) from e
 
+        if link_token:
+            current_user = await self.resolve_link_token(link_token)
         address = parsed.address.lower()
         wallet = (await self.db.execute(select(Wallet).where(Wallet.address == address))).scalars().first()
         if wallet:
             user = await self.db.get(User, wallet.user_id)
+            if current_user and current_user.id != user.id:
+                # The wallet is the identity: its account wins. A Telegram chat that was linked to the
+                # wallet-less account moves over, so alerts keep working and nothing is duplicated.
+                if current_user.telegram_chat_id and not user.telegram_chat_id:
+                    user.telegram_chat_id = current_user.telegram_chat_id
+                    user.telegram_alerts = current_user.telegram_alerts
+                    current_user.telegram_chat_id = None
         else:
             user = current_user or await self._create_user()
             self.db.add(Wallet(user_id=user.id, address=address, kind="siwe"))

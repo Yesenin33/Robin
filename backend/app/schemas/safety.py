@@ -26,6 +26,10 @@ class SafetyOut(BaseModel):
     buy_recommended: bool
     price_usd: float | None = None
     scanned_at: datetime
+    # set when holder data could not be fetched this time and the last good snapshot is shown instead
+    holders_stale_at: datetime | None = None
+    # set when a requested fresh scan failed and the previous result is shown
+    stale: bool = False
 
 
 class ScanQueued(BaseModel):

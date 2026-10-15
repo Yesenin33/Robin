@@ -76,6 +76,18 @@ def rank(trades: list[Trade], pool_init: dict[str, int] | None = None, min_close
     return sorted(ranked, key=lambda s: s.score, reverse=True)
 
 
+def rank_tiers(trades: list[Trade], pool_init: dict[str, int] | None, strong_min: int, fill_to: int,
+               exclude: set[str] | None = None) -> list[WalletStats]:
+    """Wallets with >= strong_min closed trades first; if that leaves fewer than `fill_to`, top up with
+    wallets that have a single closed winning trade (the reason text says "1 of 1", so nothing is oversold)."""
+    strong = rank(trades, pool_init, strong_min, exclude)
+    if len(strong) >= fill_to:
+        return strong
+    seen = {w.address for w in strong}
+    weak = [w for w in rank(trades, pool_init, 1, exclude) if w.address not in seen]
+    return strong + weak[: fill_to - len(strong)]
+
+
 def describe(s: WalletStats | dict) -> str:
     g = s if isinstance(s, dict) else {
         "realised_pnl_usd": s.realised_pnl_usd, "wins": s.wins, "losses": s.losses,
@@ -83,7 +95,7 @@ def describe(s: WalletStats | dict) -> str:
     }
     closed = g["wins"] + g["losses"]
     pnl = g["realised_pnl_usd"]
-    text = (f"Made {'+' if pnl >= 0 else '-'}${abs(pnl):,.0f} in realised profit; "
+    text = (f"Made {'+' if pnl >= 0 else '-'}${abs(pnl):,.2f} in realised profit; "
             f"{g['wins']} of {closed} closed trades were wins across {g['tokens']} "
             f"token{'s' if g['tokens'] != 1 else ''}.")
     if g["early_buys"]:

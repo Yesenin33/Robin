@@ -72,12 +72,12 @@ async def test_follow_backfills_from_explorer_then_collects_live(client, signed_
         await db.commit()
         alerts = (await db.execute(select(Alert))).scalars().all()
     # history (backfill) is silent; the live trade alerts the follower
-    assert len(alerts) == 1 and alerts[0].kind == "copy_event" and "sold HOODX ($1,200)" in alerts[0].title
+    assert len(alerts) == 1 and alerts[0].kind == "copy_event" and "sold HOODX ($1,200.00)" in alerts[0].title
 
     feed = (await client.get("/copy/feed?only_followed=true", headers=headers)).json()
     assert [(f["side"], f["amount_usd"], f["risk_tag"], f["following"]) for f in feed] == [
         ("sell", 1200.0, "medium", True), ("buy", 2400.0, "medium", True)]
-    assert feed[0]["reason"] == ("Sold 500 HOODX for $1,200. Our safety check says proceed with care: "
+    assert feed[0]["reason"] == ("Sold 500 HOODX for $1,200.00. Our safety check says proceed with care: "
                                  "a few wallets hold a big share.")
     assert feed[1]["ts"].startswith("2026-10-01T10:00:00")
 
@@ -111,7 +111,7 @@ async def test_unknown_token_is_created_and_reason_says_unchecked(client, signed
     assert new in await redis.lrange("scan:queue", 0, -1)
     item = (await client.get("/copy/feed", headers=headers)).json()[0]
     assert item["token_symbol"] == "NEWT" and item["risk_tag"] == "medium"
-    assert item["reason"] == "Bought 5 NEWT for $60. We haven't safety-checked this token yet."
+    assert item["reason"] == "Bought 5 NEWT for $60.00. We haven't safety-checked this token yet."
 
 
 async def test_suggested_wallets_come_from_ranked_trades(client, signed_in, appdb, redis, chain):
@@ -129,7 +129,7 @@ async def test_suggested_wallets_come_from_ranked_trades(client, signed_in, appd
     s = (await client.get("/copy/suggested", headers=headers)).json()
     assert len(s) == 1 and s[0]["address"] == WHALE and s[0]["realised_pnl_usd"] == pytest.approx(7500)  # ETH @ $3,000
     assert s[0]["early_buys"] == 1 and s[0]["following"] is False and s[0]["risk_tag"] == "medium"
-    assert s[0]["reason"].startswith("Made +$7,500 in realised profit; 1 of 1 closed trades were wins")
+    assert s[0]["reason"].startswith("Made +$7,500.00 in realised profit; 1 of 1 closed trades were wins")
 
 
 async def test_no_followed_wallets_means_no_rpc_work(appdb, redis, chain):
