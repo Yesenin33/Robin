@@ -6,6 +6,7 @@ import type { Metric, Safety as SafetyT, Verdict } from '../api/types'
 import { EmptyState, ErrorState, Skeleton } from '../components/States'
 import { Avatar, toast } from '../components/ui'
 import { isAddress, shortAddr } from '../lib/format'
+import { swapUrl } from '../lib/swap'
 import { useAsync } from '../lib/useAsync'
 
 const VERDICT: Record<Verdict, { vc: string; vt: string; soft: string; icon: string }> = {
@@ -15,7 +16,6 @@ const VERDICT: Record<Verdict, { vc: string; vt: string; soft: string; icon: str
 }
 const TONE = { ok: '#fff', warn: 'var(--amber)', bad: 'var(--red)' }
 const RECENT_KEY = 'cf_recent'
-const SWAP_URL = import.meta.env.VITE_SWAP_URL as string | undefined
 
 type Recent = { ca: string; sym: string }
 const loadRecent = (): Recent[] => { try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') } catch { return [] } }
@@ -93,8 +93,9 @@ function SafetyView({ ca }: { ca: string }) {
   const extra = s.risks.filter(r => !s.summary.includes(r)) // summary already quotes the top risks
 
   const trade = (side: 'buy' | 'sell') => {
-    if (!SWAP_URL) { toast('Trading is coming soon'); return }
-    window.open(SWAP_URL.replace('{ca}', ca).replace('{side}', side), '_blank', 'noopener')
+    const url = swapUrl(ca, side)
+    if (!url) { toast('Trading is coming soon'); return }
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   return (

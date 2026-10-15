@@ -146,6 +146,9 @@ class SafetyService:
 
     async def _persist(self, r: ScanReport, out: SafetyOut) -> None:
         token = await upsert_token(self.db, r)
+        previous = (await self.db.execute(
+            select(SafetyScore.verdict).where(SafetyScore.token_id == token.id).order_by(SafetyScore.ts.desc()).limit(1)
+        )).scalar_one_or_none()
         self.db.add(HoldersSnapshot(
             token_id=token.id, holders_count=r.holders_count, real_hands_pct=r.real_hands_pct,
             top_holder_pct=r.top_holder_pct, top_holders=r.top_holders, operators=r.operators,
@@ -157,6 +160,12 @@ class SafetyService:
             raw=json.loads(json.dumps(r.raw, default=str)),
         ))
         await self.db.commit()
+        try:  # a verdict that got worse alerts holders; never fail the scan over it
+            from app.services.alert_service import on_verdict
+
+            await on_verdict(self.db, self.redis, token, previous, out.verdict, out.risks)
+        except Exception as e:  # noqa: BLE001
+            log.warning("verdict_alert_failed", ca=r.address, error=str(e))
 
 
 async def upsert_token(db: AsyncSession, r: ScanReport) -> Token:

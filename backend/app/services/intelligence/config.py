@@ -32,6 +32,10 @@ def set_proxy_prefix(value: str | None) -> None:
     _proxy_prefix = (value or "").strip()
 
 
+def proxy_key() -> str:
+    return _overrides.get("EXPLORER_PROXY_KEY") or os.environ.get("EXPLORER_PROXY_KEY", "").strip()
+
+
 def proxy_prefix() -> str:
     return _proxy_prefix or os.environ.get("EXPLORER_PROXY_PREFIX", "").strip()
 

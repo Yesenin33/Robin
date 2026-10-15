@@ -45,21 +45,52 @@ A failing source is recorded in `errors`; if *no* source answers, `ScanUnavailab
 
 Scans run in a thread with a timeout, guarded by a Redis lock per token (202 while running).
 
-## Phase 1 API
+## API
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/auth/magic-link` | `{email}` → 202, link e-mailed (logged if `SMTP_HOST` empty) |
-| GET | `/auth/verify?token=` | single-use, → `{access_token, user}` |
-| GET | `/auth/siwe/nonce` | EIP-4361 nonce |
-| POST | `/auth/siwe` | `{message, signature}`; with Bearer → links wallet to current user |
-| GET | `/auth/me` | Bearer |
-| GET | `/portfolio/{address}` | holdings, total, 24h change, PnL vs avg entry; cached 30s |
-| GET | `/safety/{ca}` | verdict + summary + risks + metrics; Redis 10m → DB (<60m) → scan; 202 if a scan is already running |
-| POST | `/safety/{ca}/refresh` | queue rescan for the worker |
+| POST | `/auth/magic-link`, GET `/auth/verify` | e-mail sign-in |
+| GET/POST | `/auth/siwe/nonce`, `/auth/siwe` | wallet sign-in (EIP-4361) |
+| GET | `/portfolio/{address}` | holdings, 24h change, PnL |
+| GET | `/safety/{ca}` | verdict + summary + risks + 4 metrics; 202 while scanning |
+| GET | `/copy/feed?only_followed=` | followed wallets' swaps, plain-English reason + risk tag from the latest safety check |
+| GET | `/copy/suggested` | wallets ranked by realised PnL on recently created pools (on-chain, never hand-picked) |
+| POST/DELETE | `/copy/subscribe` | follow/unfollow; first follow queues a history backfill |
+| GET | `/alerts`, POST `/alerts/{id}/read`, `/alerts/read-all` | in-app alerts |
+| GET/POST/DELETE | `/alerts/push/key`, `/alerts/push/subscribe` | Web Push (VAPID) |
+| POST/DELETE | `/alerts/telegram/start`, `/alerts/telegram/verify`, `/alerts/telegram` | Telegram linking: code sent to the chat |
+| GET | `/health/sources?fresh=1` | status + latency of postgres, redis, every RPC, explorer, DexScreener, GeckoTerminal |
 
-OpenAPI: `/docs`. Public endpoints are rate-limited per IP (`RATE_LIMIT_PER_MIN`).
-Phase 2: `/token`, `/copy/*`, `/alerts`, `/billing/checkout` (tables already exist).
+## Worker jobs
+
+| Job | Every | What |
+|---|---|---|
+| `discover_pools` | 5 min | V4 PoolManager `Initialize` logs from a Redis cursor -> new `tokens` (+ scan queued) |
+| `collect` (copy) | 2 min | followed wallets' swaps in any token since the cursor; ETH leg from receipts; follower alerts |
+| `drain_backfill` | 20 s | first-follow history: explorer token-transfers, RPC log scan if the explorer is down |
+| `rank_wallets` | 60 min | realised PnL x hit rate over the newest pools -> `smart_wallets` |
+| `warmup` | 2 min | re-scan the most requested tokens before their cached verdict expires |
+| `deliver` | 30 s | Telegram + Web Push, `ALERTS_PER_HOUR` per user; stores `tg_message_id` |
+| `price_moves` | 10 min | holders alerted on a >= `PRICE_MOVE_PCT` move |
+| scan queue / stale refresh / position snapshots | 5 s / 30 min / 5 min | as before |
+
+## Verify on the server
+
+```bash
+cd /root/chainfolio/backend
+python -m scripts.gen_vapid                       # paste into .env with TELEGRAM_BOT_TOKEN/USERNAME
+docker builder prune -af && docker compose up -d --build migrate api worker web
+docker compose logs worker --tail=60 | grep -E "pools_discovered|wallets_ranked|copy_collected|copy_backfilled|alerts_delivered"
+curl -s localhost:8000/health/sources?fresh=1 | python3 -m json.tool
+TOKEN=...   # from a SIWE login in the app (localStorage cf_token)
+curl -s localhost:8000/copy/suggested -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+curl -s -XPOST localhost:8000/copy/subscribe -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+     -d '{"address":"<wallet from /copy/suggested>","follow":true}'
+sleep 30; curl -s "localhost:8000/copy/feed?only_followed=true" -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+curl -s localhost:8000/alerts -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+docker compose exec postgres psql -U chainfolio -c "select id, title, payload->>'tg_message_id' from alerts order by id desc limit 5"
+docker compose exec api python -m scripts.loadtest http://localhost:8000/health -c 50 -n 3000
+```
 
 ## Run locally
 

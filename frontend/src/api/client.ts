@@ -1,4 +1,4 @@
-import type { CopyItem, Portfolio, Safety, ScanQueued, TokenOut, User } from './types'
+import type { Alerts, Channels, CopyItem, Portfolio, Safety, ScanQueued, Suggested, TokenOut, User } from './types'
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api'
 const TOKEN_KEY = 'cf_token'
@@ -48,9 +48,19 @@ export const api = {
   /** 200 -> result, 202 -> scan running (caller polls) */
   safety: async (ca: string): Promise<Safety | ScanQueued> => (await req<Safety | ScanQueued>(`/safety/${ca}`)).data,
 
-  // Phase 2
   copyFeed: () => get<CopyItem[]>('/copy/feed'),
+  copySuggested: () => get<Suggested[]>('/copy/suggested'),
   copySubscribe: (address: string, follow: boolean) => post('/copy/subscribe', { address, follow }),
+
+  alerts: () => get<Alerts>('/alerts'),
+  alertRead: (id: number) => post(`/alerts/${id}/read`),
+  alertChannels: () => get<Channels>('/alerts/channels'),
+  pushKey: () => get<{ public_key: string }>('/alerts/push/key'),
+  pushSubscribe: (sub: PushSubscriptionJSON) => post('/alerts/push/subscribe', sub),
+  pushUnsubscribe: () => req('/alerts/push/subscribe', { method: 'DELETE' }),
+  telegramStart: (chat_id: string) => post('/alerts/telegram/start', { chat_id }),
+  telegramVerify: (code: string) => post<Channels>('/alerts/telegram/verify', { code }),
+  telegramUnlink: () => req('/alerts/telegram', { method: 'DELETE' }),
   checkout: () => post<{ url: string }>('/billing/checkout'),
 }
 

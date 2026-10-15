@@ -9,6 +9,12 @@ from app.services.engine.local import IntelligenceEngine
 log = get_logger(__name__)
 
 
+def rpc_urls() -> str:
+    """Primary + fallbacks, comma-separated (intelligence.rpc.Rpc fails over in order)."""
+    s = get_settings()
+    return ",".join(u.strip() for u in [s.rpc_url, *s.rpc_fallback_urls.split(",")] if u.strip())
+
+
 @lru_cache
 def get_engine() -> ScanEngine:
     s = get_settings()
@@ -19,8 +25,8 @@ def get_engine() -> ScanEngine:
         intelligence.configure(dexscreener_chain=s.dexscreener_chain, geckoterminal_network=s.geckoterminal_network)
         return BuiltinEngine(s.chain_name)
     engine = IntelligenceEngine(
-        s.chain_name, chain_id=s.chain_id, rpc_url=s.rpc_url, explorer_api_url=s.explorer_api_url,
-        explorer_proxy_prefix=s.explorer_proxy_prefix,
+        s.chain_name, chain_id=s.chain_id, rpc_url=rpc_urls(), explorer_api_url=s.explorer_api_url,
+        explorer_proxy_prefix=s.explorer_proxy_prefix, explorer_proxy_key=s.explorer_proxy_key or None,
         dexscreener_chain=s.dexscreener_chain, geckoterminal_network=s.geckoterminal_network,
         holder_scan_blocks=s.holder_scan_blocks, log_chunk_blocks=s.log_chunk_blocks,
     )

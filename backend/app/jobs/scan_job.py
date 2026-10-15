@@ -43,6 +43,28 @@ async def drain_queue(redis: Redis, max_items: int = 20) -> int:
     return done
 
 
+POPULAR = "safety:popular"
+
+
+async def record_hit(redis: Redis, ca: str) -> None:
+    """Popularity for cache warmup (decays: the set is trimmed and expires daily)."""
+    await redis.zincrby(POPULAR, 1, ca)
+    await redis.expire(POPULAR, 86400)
+
+
+async def warmup(redis: Redis) -> int:
+    """Re-scan the most requested tokens shortly before their cached verdict expires."""
+    s = get_settings()
+    top = await redis.zrevrange(POPULAR, 0, s.warmup_tokens - 1)
+    n = 0
+    for ca in top:
+        ttl = await redis.ttl(f"safety:{ca}")
+        if ttl < 120:  # missing (-2) or about to expire
+            n += await enqueue_scan(redis, ca)
+    await redis.zremrangebyrank(POPULAR, 0, -(s.warmup_tokens * 5) - 1)
+    return n
+
+
 async def refresh_stale(redis: Redis, batch: int = 50) -> int:
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=get_settings().safety_stale_min)
     async with SessionLocal() as db:

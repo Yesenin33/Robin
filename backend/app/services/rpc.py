@@ -55,7 +55,11 @@ def decode_string(hex_value: str | None) -> str | None:
 
 class RPCClient:
     def __init__(self, url: str | None = None, client: httpx.AsyncClient | None = None):
-        self.url = url or get_settings().rpc_url
+        if url is None:
+            s = get_settings()
+            url = ",".join([s.rpc_url, *s.rpc_fallback_urls.split(",")])
+        self.urls = [u.strip() for u in url.split(",") if u.strip()]
+        self.url = self.urls[0]
         self._client = client or httpx.AsyncClient(timeout=15)
         self._id = 0
 
@@ -69,9 +73,18 @@ class RPCClient:
         for method, params in calls:
             self._id += 1
             payload.append({"jsonrpc": "2.0", "id": self._id, "method": method, "params": params})
-        resp = await self._client.post(self.url, json=payload)
-        resp.raise_for_status()
-        by_id = {r["id"]: r for r in resp.json()}
+        last: Exception | None = None
+        for url in self.urls:  # fail over in order
+            try:
+                resp = await self._client.post(url, json=payload)
+                resp.raise_for_status()
+                body = resp.json()
+                break
+            except (httpx.HTTPError, ValueError) as e:
+                last = e
+        else:
+            raise RPCError(f"all RPC endpoints failed: {last}")
+        by_id = {r["id"]: r for r in body}
         out = []
         for req in payload:
             r = by_id.get(req["id"], {})

@@ -19,6 +19,7 @@ class Token(IdMixin, TimestampMixin, Base):
     price_change_24h: Mapped[float | None] = mapped_column(Numeric(18, 6))
     liquidity_usd: Mapped[float | None] = mapped_column(Numeric(24, 2))
     last_indexed_block: Mapped[int | None] = mapped_column(BigId)
+    pool_init_block: Mapped[int | None] = mapped_column(BigId)  # V4 Initialize block, if discovered there
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 

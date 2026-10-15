@@ -4,7 +4,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from app.services.intelligence.config import proxy_prefix
+from app.services.intelligence.config import proxy_key, proxy_prefix
 
 UA = {"User-Agent": "chainfolio-intelligence/1.0", "Accept": "application/json"}
 
@@ -40,6 +40,8 @@ def _read(url: str, timeout: float, tries: int) -> Any:
     proxy = proxy_prefix()
     target = f"{proxy.rstrip('/')}/{url}" if proxy else url
     headers = {**UA, "x-respond-with": "json"} if proxy else UA
+    if proxy and (key := proxy_key()):
+        headers["Authorization"] = f"Bearer {key}"
     req = urllib.request.Request(target, headers=headers)
     last: Exception | None = None
     for attempt in range(tries):

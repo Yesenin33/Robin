@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from app.api.deps import safety_service
 from app.core.ratelimit import rate_limit
 from app.core.redis import get_redis
-from app.jobs.scan_job import enqueue_scan
+from app.jobs.scan_job import enqueue_scan, record_hit
 from app.schemas.safety import SafetyOut, ScanQueued
 from app.core.logging import get_logger
 from app.services.intelligence import ScanUnavailable
@@ -18,6 +18,7 @@ CA = Path(pattern=ADDRESS_RE.pattern, description="Token contract address")
 
 @router.get("/{ca}", response_model=SafetyOut, responses={202: {"model": ScanQueued}})
 async def get_safety(ca: str = CA, svc: SafetyService = Depends(safety_service)):
+    await record_hit(get_redis(), ca.lower())
     try:
         return await svc.get(ca)
     except ScanInProgress:

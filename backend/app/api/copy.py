@@ -4,14 +4,18 @@ Feed rows come from `copy_events` (written by the worker); `following` marks the
 the current user follows. Subscribing is per-user and idempotent.
 """
 from fastapi import APIRouter, Depends, Query
+from redis.asyncio import Redis
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import current_user
 from app.core.db import get_session
 from app.core.ratelimit import rate_limit
-from app.models import CopyEvent, CopyTarget, Token, User
-from app.schemas.copy import CopyItemOut, CopyTargetOut, SubscribeIn
+from app.core.redis import get_redis
+from app.jobs.copy_job import enqueue_backfill
+from app.models import CopyTarget, SmartWallet, Token, User
+from app.schemas.copy import CopyItemOut, CopyTargetOut, SubscribeIn, SuggestedOut
+from app.services import copy_service, smart_wallets
 
 router = APIRouter(prefix="/copy", tags=["copy"], dependencies=[Depends(rate_limit)])
 
@@ -24,28 +28,35 @@ async def _followed(db: AsyncSession, user_id: int) -> set[str]:
 @router.get("/feed", response_model=list[CopyItemOut])
 async def feed(
     limit: int = Query(30, ge=1, le=100),
+    only_followed: bool = Query(False, description="only wallets I follow"),
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ):
-    rows = await db.execute(
-        select(CopyEvent, Token.symbol)
-        .join(Token, Token.address == CopyEvent.token_address, isouter=True)
-        .order_by(CopyEvent.ts.desc())
-        .limit(limit)
-    )
+    return await copy_service.feed(db, user.id, limit, only_followed)
+
+
+@router.get("/suggested", response_model=list[SuggestedOut])
+async def suggested(
+    limit: int = Query(10, ge=1, le=50),
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    """Wallets worth following, ranked from observed trades (realised PnL x hit rate)."""
+    rows = (await db.execute(select(SmartWallet).order_by(SmartWallet.score.desc()).limit(limit))).scalars().all()
     followed = await _followed(db, user.id)
-    out: list[CopyItemOut] = []
-    for ev, symbol in rows.all():
-        out.append(CopyItemOut(
-            address=ev.address,
-            ts=ev.ts,
-            side=ev.side,
-            token_symbol=symbol or ev.token_address[:8],
-            amount_usd=float(ev.amount_usd) if ev.amount_usd is not None else None,
-            reason=ev.reason or "",
-            risk_tag=ev.risk_tag or "medium",
-            following=ev.address.lower() in followed,
-        ))
+    tokens = {a for w in rows for a in (w.token_list or [])}
+    ids = {t.address: t.id for t in (await db.execute(select(Token).where(Token.address.in_(tokens)))).scalars()}
+    safety = await copy_service.latest_safety(db, list(ids.values()))
+    out = []
+    for w in rows:
+        verdicts = [safety[ids[a]][0] for a in (w.token_list or []) if a in ids and ids[a] in safety]
+        bad = sum(v == "DANGER" for v in verdicts) / len(verdicts) if verdicts else 0
+        risky = sum(v != "CLEAN" for v in verdicts) / len(verdicts) if verdicts else 0.5
+        tag = "high" if bad >= 0.3 else "medium" if risky >= 0.3 else "low"
+        g = {"realised_pnl_eth": float(w.realised_pnl_eth), "wins": w.wins, "losses": w.losses,
+             "tokens": w.tokens, "early_buys": w.early_buys}
+        out.append(SuggestedOut(address=w.address, **g, reason=smart_wallets.describe(g), risk_tag=tag,
+                                following=w.address in followed))
     return out
 
 
@@ -56,7 +67,8 @@ async def targets(user: User = Depends(current_user), db: AsyncSession = Depends
 
 
 @router.post("/subscribe", response_model=CopyTargetOut)
-async def subscribe(body: SubscribeIn, user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
+async def subscribe(body: SubscribeIn, user: User = Depends(current_user), db: AsyncSession = Depends(get_session),
+                    redis: Redis = Depends(get_redis)):
     address = body.address.strip().lower()
     existing = await db.execute(select(CopyTarget).where(CopyTarget.user_id == user.id, CopyTarget.address == address))
     row = existing.scalar_one_or_none()
@@ -69,7 +81,11 @@ async def subscribe(body: SubscribeIn, user: User = Depends(current_user), db: A
         row.active = body.follow
     await db.commit()
     await db.refresh(row)
-    return CopyTargetOut(address=row.address, active=row.active)
+    queued = False
+    if row.active:  # first follow of this wallet by anyone -> pull its history now
+        queued = (await redis.get(f"copy:backfilled:{address}")) is None
+        await enqueue_backfill(redis, address)
+    return CopyTargetOut(address=row.address, active=row.active, backfill_queued=queued)
 
 
 @router.delete("/subscribe", status_code=204)

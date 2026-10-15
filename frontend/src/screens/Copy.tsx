@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { api, ApiError } from '../api/client'
-import type { CopyItem } from '../api/types'
+import type { CopyItem, RiskTag, Suggested } from '../api/types'
 import { EmptyState, ErrorState, Skeleton } from '../components/States'
 import { Avatar, toast } from '../components/ui'
 import { ago, shortAddr, usd } from '../lib/format'
@@ -15,12 +15,11 @@ const TAG = {
 
 export function Copy() {
   const { state, reload } = useAsync(async () => {
-    try {
-      return await api.copyFeed()
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 404) return [] // feed not deployed yet
-      throw e
-    }
+    const [feed, suggested] = await Promise.all([
+      api.copyFeed(),
+      api.copySuggested().catch(e => { if (e instanceof ApiError && e.status === 404) return []; throw e }),
+    ])
+    return { feed, suggested }
   }, [])
 
   return (
@@ -31,23 +30,31 @@ export function Copy() {
       </div>
       {state.status === 'loading' && <Skeleton rows={3} />}
       {state.status === 'error' && <ErrorState body="We couldn't load smart wallets." onRetry={() => void reload()} />}
-      {state.status === 'ready' && (state.data.length
-        ? <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{state.data.map(w => <WalletCard key={w.address + w.ts} w={w} />)}</div>
-        : <EmptyState emoji="👀" title="No smart wallets right now" body="Check back soon. We'll show traders worth following here." cta="Refresh" onCta={() => void reload()} />)}
+      {state.status === 'ready' && state.data.suggested.length > 0 && (
+        <>
+          <div className="label">Worth following</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {state.data.suggested.map(s => <SuggestedCard key={s.address} s={s} onFollow={() => void reload(true)} />)}
+          </div>
+          {state.data.feed.length > 0 && <div className="label">Latest moves</div>}
+        </>
+      )}
+      {state.status === 'ready' && (state.data.feed.length
+        ? <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{state.data.feed.map(w => <WalletCard key={w.address + w.ts + w.tx_hash} w={w} />)}</div>
+        : state.data.suggested.length === 0 && <EmptyState emoji="👀" title="No smart wallets right now" body="Check back soon. We'll show traders worth following here." cta="Refresh" onCta={() => void reload()} />)}
     </div>
   )
 }
 
-function WalletCard({ w }: { w: CopyItem }) {
-  const [on, setOn] = useState(w.following)
+function FollowButton({ address, following, onDone }: { address: string; following: boolean; onDone?: () => void }) {
+  const [on, setOn] = useState(following)
   const [busy, setBusy] = useState(false)
-  const tag = TAG[w.risk_tag]
-
   const toggle = async () => {
     setBusy(true)
     setOn(!on)
     try {
-      await api.copySubscribe(w.address, !on)
+      await api.copySubscribe(address, !on)
+      onDone?.()
     } catch {
       setOn(on)
       toast("Couldn't update. Try again.")
@@ -55,7 +62,38 @@ function WalletCard({ w }: { w: CopyItem }) {
       setBusy(false)
     }
   }
+  return (
+    <button disabled={busy} onClick={() => void toggle()} style={{
+      height: 46, borderRadius: 14, border: '1px solid var(--green)', fontWeight: 800, fontSize: 15,
+      background: on ? 'transparent' : 'var(--green)', color: on ? 'var(--green)' : 'var(--green-ink)',
+    }}>{on ? '✓ Copying' : 'Copy'}</button>
+  )
+}
 
+function Tag({ t }: { t: RiskTag }) {
+  const tag = TAG[t]
+  return <div style={{ fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 99, background: tag.bg, color: tag.fg }}>{tag.label}</div>
+}
+
+function SuggestedCard({ s, onFollow }: { s: Suggested; onFollow: () => void }) {
+  return (
+    <div className="card" style={{ borderRadius: 22, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Avatar seed={s.address} letter={s.address.slice(2, 3)} size={42} />
+        <div style={{ flex: 1 }}>
+          <div className="num" style={{ fontWeight: 700, fontSize: 15 }}>{shortAddr(s.address)}</div>
+          <div className="up" style={{ fontSize: 13, marginTop: 2, fontWeight: 700 }}>{s.realised_pnl_eth >= 0 ? '+' : ''}{s.realised_pnl_eth.toFixed(2)} ETH realised</div>
+        </div>
+        <Tag t={s.risk_tag} />
+      </div>
+      <div style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.45 }}>{s.reason}</div>
+      <FollowButton address={s.address} following={s.following} onDone={onFollow} />
+    </div>
+  )
+}
+
+function WalletCard({ w }: { w: CopyItem }) {
+  const amount = w.amount_usd != null ? ` ${usd(w.amount_usd).replace(/\.00$/, '')} of` : ''
   return (
     <div className="card" style={{ borderRadius: 22, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -64,14 +102,11 @@ function WalletCard({ w }: { w: CopyItem }) {
           <div className="num" style={{ fontWeight: 700, fontSize: 15 }}>{shortAddr(w.address)}</div>
           <div style={{ fontSize: 13, color: 'var(--muted-2)', marginTop: 2 }}>{ago(w.ts)}</div>
         </div>
-        <div style={{ fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 99, background: tag.bg, color: tag.fg }}>{tag.label}</div>
+        <Tag t={w.risk_tag} />
       </div>
-      <div style={{ fontSize: 18, fontWeight: 800 }}>{w.side === 'buy' ? 'Bought' : 'Sold'} {usd(w.amount_usd).replace(/\.00$/, '')} of {w.token_symbol}</div>
+      <div style={{ fontSize: 18, fontWeight: 800 }}>{w.side === 'buy' ? 'Bought' : 'Sold'}{amount} {w.token_symbol}</div>
       <div style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.45 }}>{w.reason}</div>
-      <button disabled={busy} onClick={() => void toggle()} style={{
-        height: 46, borderRadius: 14, border: '1px solid var(--green)', fontWeight: 800, fontSize: 15,
-        background: on ? 'transparent' : 'var(--green)', color: on ? 'var(--green)' : 'var(--green-ink)',
-      }}>{on ? '✓ Copying' : 'Copy'}</button>
+      <FollowButton address={w.address} following={w.following} />
     </div>
   )
 }

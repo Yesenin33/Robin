@@ -1,104 +1,141 @@
-"""Copy feed: turn followed wallets' on-chain trades into CopyEvent rows.
+"""Copy feed jobs.
 
-A followed wallet's transfer is a *trade* only when the counterparty is the pool (Uniswap V4
-PoolManager on Robinhood Chain) — plain wallet-to-wallet moves are ignored. Rows are deduped by tx.
+collect  — live: every followed wallet's swaps (any token) since the last cursor, via two
+           topic-filtered eth_getLogs; ETH legs from receipts; new rows -> follower alerts.
+backfill — on first follow: the wallet's history from the explorer (token-transfers API),
+           falling back to an RPC log scan, so the feed isn't empty for hours.
 """
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 
+from redis.asyncio import Redis
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 
 from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.core.logging import get_logger
-from app.models import CopyEvent, CopyTarget, SafetyScore, Token
-from app.services.intelligence.rpc import TRANSFER_TOPIC, Rpc, to_int
+from app.jobs.scan_job import enqueue_scan
+from app.models import CopyTarget
+from app.services import alert_service, chain_index, copy_service
+from app.services.chain import make_rpc
+from app.services.chain_index import POOL_MANAGER, Trade
+from app.services.intelligence.config import get_chain
+from app.services.intelligence.http import HttpError, get_json
+from app.services.market import MarketClient
 
 log = get_logger(__name__)
-
-# Uniswap V4 PoolManager on Robinhood Chain — the counterparty of every swap on a Pons/V4 pool
-POOL_MANAGER = "0x8366a39cc670b4001a1121b8f6a443a643e40951"
-LOOKBACK_BLOCKS = 3000
-RISK = {"DANGER": "high", "RISKY": "medium", "CLEAN": "low"}
+CURSOR = "copy:cursor"
+BACKFILL_QUEUE = "copy:backfill"
 
 
-def _addr(topic: str) -> str:
-    return "0x" + topic[-40:].lower()
+async def _store(redis: Redis, rpc, trades: list[Trade], alert: bool) -> int:
+    if not trades:
+        return 0
+    eth_usd = await MarketClient(redis).native_price_usd(get_settings().native_symbol)
+    async with SessionLocal() as db:
+        tokens, new = await copy_service.ensure_tokens(db, rpc, {t.token for t in trades})
+        await db.commit()
+        events = await copy_service.store_trades(db, trades, tokens, eth_usd)
+        if alert and events:
+            await alert_service.on_copy_events(db, redis, events)
+    for addr in new:
+        await enqueue_scan(redis, addr)  # so the feed can say whether the token is safe
+    return len(events)
 
 
-def _collect_sync(rpc_url: str, targets: list[dict]) -> list[dict]:
-    """Read recent transfers for the given tokens and keep the followed wallets' swaps."""
-    rpc = Rpc(rpc_url)
-    head = rpc.block_number()
-    start = max(0, head - LOOKBACK_BLOCKS)
-    out: list[dict] = []
-    for t in targets:
-        logs = rpc.transfer_logs(t["address"], start, head, 9999)
-        for lg in logs:
-            topics = lg.get("topics") or []
-            if len(topics) != 3:
-                continue
-            frm, to = _addr(topics[1]), _addr(topics[2])
-            wallet = frm if frm in t["wallets"] else to if to in t["wallets"] else None
-            if wallet is None:
-                continue
-            if frm == POOL_MANAGER and to == wallet:
-                side = "buy"
-            elif to == POOL_MANAGER and frm == wallet:
-                side = "sell"
-            else:
-                continue  # wallet-to-wallet move, not a trade
-            raw = to_int(lg.get("data"))
-            out.append({"wallet": wallet, "side": side, "raw": raw, "tx": lg.get("transactionHash"),
-                        "token": t, "ts": datetime.now(timezone.utc)})
-    return out
-
-
-async def collect(redis=None, batch_tokens: int = 15) -> int:
-    """Scan recently seen tokens for the followed wallets' swaps; insert new CopyEvents."""
+async def collect(redis: Redis, rpc=None) -> int:
     s = get_settings()
     async with SessionLocal() as db:
-        wallets = {a.lower() for (a,) in (await db.execute(
-            select(CopyTarget.address).where(CopyTarget.active.is_(True)).distinct())).all()}
-        if not wallets:
-            return 0
-        tokens = (await db.execute(select(Token).order_by(Token.updated_at.desc()).limit(batch_tokens))).scalars().all()
-        targets, risk = [], {}
-        for t in tokens:
-            row = (await db.execute(select(SafetyScore.verdict)
-                                    .where(SafetyScore.token_id == t.id)
-                                    .order_by(SafetyScore.ts.desc()).limit(1))).first()
-            risk[t.address] = row[0] if row else None
-            targets.append({"address": t.address, "symbol": t.symbol or t.address[:8], "decimals": t.decimals,
-                            "price": float(t.price_usd) if t.price_usd is not None else None, "wallets": wallets})
-
-    if not targets:
+        wallets = sorted({a for (a,) in (await db.execute(
+            select(CopyTarget.address).where(CopyTarget.active.is_(True)).distinct())).all()})
+    if not wallets:
         return 0
-
+    rpc = rpc or make_rpc()
     try:
-        found = await asyncio.to_thread(_collect_sync, s.rpc_url, targets)
-    except Exception as e:  # noqa: BLE001
+        head = await asyncio.to_thread(rpc.block_number)
+        cursor = await redis.get(CURSOR)
+        start = int(cursor) + 1 if cursor else max(0, head - s.copy_lookback_blocks)
+        trades: list[Trade] = []
+        for i in range(0, len(wallets), 50):  # keep the topic OR-list small
+            trades += await asyncio.to_thread(chain_index.wallet_trades, rpc, wallets[i:i + 50], start, head,
+                                              s.log_chunk_blocks)
+        await asyncio.to_thread(chain_index.enrich, rpc, trades, s.weth_address or None)
+    except Exception as e:  # noqa: BLE001 — next run retries from the same cursor
         log.error("copy_collect_failed", error=str(e))
         return 0
+    n = await _store(redis, rpc, trades, alert=True)
+    await redis.set(CURSOR, head)
+    log.info("copy_collected", wallets=len(wallets), start=start, head=head, trades=len(trades), events=n)
+    return n
 
-    inserted = 0
-    async with SessionLocal() as db:
-        for f in found:
-            t = f["token"]
-            amount = f["raw"] / 10 ** t["decimals"] if t["decimals"] else 0.0
-            usd = round(amount * t["price"], 2) if t["price"] else None
-            verdict = risk.get(t["address"])
-            reason = (f"{'Bought' if f['side'] == 'buy' else 'Sold'} {amount:,.0f} ${t['symbol']}"
-                      + (f" for ${usd:,.0f}" if usd else "")
-                      + (" · flagged risky" if verdict == "DANGER" else ""))
-            db.add(CopyEvent(address=f["wallet"], ts=f["ts"], tx_hash=f["tx"], side=f["side"],
-                             token_address=t["address"], amount_usd=usd, reason=reason,
-                             risk_tag=RISK.get(verdict, "medium"), meta={"symbol": t["symbol"]}))
-            try:
-                await db.commit()
-                inserted += 1
-            except IntegrityError:  # same tx already recorded
-                await db.rollback()
-    log.info("copy_collected", events=inserted)
-    return inserted
+
+# ---------- backfill ----------
+
+async def enqueue_backfill(redis: Redis, wallet: str) -> None:
+    if await redis.set(f"copy:backfilled:{wallet}", "1", nx=True, ex=7 * 86400):
+        await redis.rpush(BACKFILL_QUEUE, wallet)
+
+
+def explorer_trades(wallet: str, pages: int, fetch=None) -> list[Trade]:
+    """Swaps from Blockscout /api/v2/addresses/{a}/token-transfers (PoolManager as counterparty)."""
+    fetch = fetch or get_json
+    base = get_chain("robinhood").explorer_api.rstrip("/")
+    if not base:
+        raise HttpError("explorer not configured")
+    url = f"{base}/api/v2/addresses/{wallet}/token-transfers?type=ERC-20"
+    out: list[Trade] = []
+    params = None
+    for _ in range(pages):
+        page = fetch(url + ("&" + "&".join(f"{k}={v}" for k, v in params.items()) if params else ""))
+        for it in page.get("items", []):
+            frm = (it.get("from") or {}).get("hash", "").lower()
+            to = (it.get("to") or {}).get("hash", "").lower()
+            if POOL_MANAGER not in (frm, to):
+                continue
+            tok = it.get("token") or {}
+            ts = it.get("timestamp")
+            out.append(Trade(
+                wallet=wallet, token=(tok.get("address_hash") or tok.get("address") or "").lower(),
+                side="buy" if frm == POOL_MANAGER else "sell",
+                token_raw=int((it.get("total") or {}).get("value") or 0),
+                tx=it.get("transaction_hash") or it.get("tx_hash"), block=int(it.get("block_number") or 0),
+                log_index=int(it.get("log_index") or 0),
+                ts=int(datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()) if ts else None,
+            ))
+        params = page.get("next_page_params")
+        if not params:
+            break
+    return [t for t in out if t.token and t.tx]
+
+
+async def backfill(redis: Redis, wallet: str, rpc=None, fetch=None) -> int:
+    s = get_settings()
+    rpc = rpc or make_rpc()
+    source = "explorer"
+    try:
+        trades = await asyncio.to_thread(explorer_trades, wallet, s.backfill_pages, fetch)
+    except Exception as e:  # noqa: BLE001
+        log.warning("backfill_explorer_failed", wallet=wallet, error=str(e))
+        source = "rpc"
+        head = await asyncio.to_thread(rpc.block_number)
+        trades = await asyncio.to_thread(chain_index.wallet_trades, rpc, [wallet], max(0, head - s.backfill_blocks),
+                                         head, s.log_chunk_blocks)
+    try:
+        await asyncio.to_thread(chain_index.enrich, rpc, trades, s.weth_address or None)
+    except Exception as e:  # noqa: BLE001 — rows are still useful without ETH legs
+        log.warning("backfill_enrich_failed", wallet=wallet, error=str(e))
+    n = await _store(redis, rpc, trades, alert=False)  # history isn't news: no alerts
+    log.info("copy_backfilled", wallet=wallet, source=source, trades=len(trades), events=n)
+    return n
+
+
+async def drain_backfill(redis: Redis, max_items: int = 5) -> int:
+    done = 0
+    while done < max_items and (wallet := await redis.lpop(BACKFILL_QUEUE)):
+        try:
+            await backfill(redis, wallet)
+        except Exception as e:  # noqa: BLE001
+            log.error("backfill_failed", wallet=wallet, error=str(e))
+            await redis.delete(f"copy:backfilled:{wallet}")  # allow a retry on next follow
+        done += 1
+    return done

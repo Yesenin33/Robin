@@ -29,9 +29,23 @@ def pad_addr(a: str) -> str:
 
 class Rpc:
     def __init__(self, url: str, transport: Transport | None = None):
-        self.url = url
-        self._transport = transport or (lambda payload: post_json(url, payload))
+        """`url` may be a comma-separated list: tried in order, the first that answers wins."""
+        self.urls = [u.strip() for u in url.split(",") if u.strip()]
+        self.url = self.urls[0] if self.urls else url
+        self._transport = transport or self._failover
         self._id = 0
+
+    def _failover(self, payload: list[dict]) -> list[dict]:
+        last: Exception | None = None
+        for i, u in enumerate(self.urls):
+            try:
+                resp = post_json(u, payload)
+                if i:  # promote the node that answered
+                    self.urls.insert(0, self.urls.pop(i))
+                return resp
+            except Exception as e:  # noqa: BLE001
+                last = e
+        raise RpcError(f"all RPC endpoints failed: {last}")
 
     def batch(self, calls: list[tuple[str, list[Any]]], size: int = 100) -> list[Any]:
         """Results in order; a failed sub-call yields None (doesn't fail the batch)."""

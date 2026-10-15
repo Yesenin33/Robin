@@ -43,14 +43,42 @@ export interface Safety {
 }
 export interface ScanQueued { address: string; queued: true }
 
-// Phase 2 endpoints (backend not implemented yet)
+export type RiskTag = 'low' | 'medium' | 'high'
+
 export interface CopyItem {
   address: string
   ts: string
   side: 'buy' | 'sell'
   token_symbol: string
-  amount_usd: number
+  token_address: string | null
+  tx_hash: string | null
+  amount_usd: number | null
   reason: string
-  risk_tag: 'low' | 'medium' | 'high'
+  risk_tag: RiskTag
+  verdict: Verdict | null
   following: boolean
 }
+
+export interface Suggested {
+  address: string
+  realised_pnl_eth: number
+  wins: number
+  losses: number
+  tokens: number
+  early_buys: number
+  reason: string
+  risk_tag: RiskTag
+  following: boolean
+}
+
+export interface AlertItem {
+  id: number
+  kind: string
+  title: string
+  body: string
+  url: string | null
+  created_at: string
+  read: boolean
+}
+export interface Alerts { unread: number; items: AlertItem[] }
+export interface Channels { push: boolean; telegram: boolean; telegram_bot: string | null }

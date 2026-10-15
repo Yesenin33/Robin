@@ -19,13 +19,18 @@ class CopyTarget(IdMixin, TimestampMixin, Base):
 
 class CopyEvent(IdMixin, Base):
     __tablename__ = "copy_events"
+    __table_args__ = (UniqueConstraint("tx_hash", "token_address", "address", "side"),)
 
     address: Mapped[str] = mapped_column(String(42), index=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
-    tx_hash: Mapped[str] = mapped_column(String(66), unique=True)
+    # one tx can hold several swaps (multi-hop); unique per (tx, token, wallet)
+    tx_hash: Mapped[str] = mapped_column(String(78))
     side: Mapped[str] = mapped_column(String(4))  # buy | sell
     token_address: Mapped[str] = mapped_column(String(42))
     amount_usd: Mapped[float | None] = mapped_column(Numeric(24, 2))
+    token_amount: Mapped[float | None] = mapped_column(Numeric(48, 18))
+    eth_amount: Mapped[float | None] = mapped_column(Numeric(38, 18))
+    block_number: Mapped[int | None] = mapped_column(BigId)
     reason: Mapped[str | None] = mapped_column(String(512))
     risk_tag: Mapped[str | None] = mapped_column(String(16))  # low | medium | high
     meta: Mapped[dict | None] = mapped_column(JSON)

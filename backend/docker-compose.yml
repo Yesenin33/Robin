@@ -48,7 +48,11 @@ services:
       migrate: { condition: service_completed_successfully }
 
   web:
-    build: ../frontend
+    build:
+      context: ../frontend
+      args:  # Buy/Sell deep link, see frontend/.env.example
+        VITE_SWAP_URL: ${VITE_SWAP_URL:-}
+        VITE_SWAP_NATIVE: ${VITE_SWAP_NATIVE:-ETH}
     restart: unless-stopped
     ports: ["127.0.0.1:8080:80"]
     depends_on: [api]
