@@ -25,7 +25,7 @@ class AuthService:
     async def send_magic_link(self, email: str) -> None:
         token = new_token()
         await self.redis.set(f"ml:{sha256(token)}", email.lower(), ex=self.s.magic_link_ttl_s)
-        link = f"{self.s.public_base_url}/auth/verify?token={token}"
+        link = f"{self.s.frontend_url}/auth/callback?token={token}"
         await send_mail(email, "Your Chainfolio sign-in link",
                         f"Tap to sign in:\n\n{link}\n\nThe link expires in {self.s.magic_link_ttl_s // 60} minutes.")
 

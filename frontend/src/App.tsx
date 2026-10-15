@@ -1,0 +1,55 @@
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
+
+import { Background } from './components/Background'
+import { TabBar } from './components/TabBar'
+import { Toaster } from './components/ui'
+import { useAuth } from './lib/auth'
+import { AuthCallback } from './screens/AuthCallback'
+import { Copy } from './screens/Copy'
+import { Landing } from './screens/Landing'
+import { Onboarding } from './screens/Onboarding'
+import { Portfolio } from './screens/Portfolio'
+import { Profile } from './screens/Profile'
+import { Safety } from './screens/Safety'
+
+// Phone surface opacity per area, as in the design (background shows through more on landing)
+const alphaFor = (path: string) => (path === '/' ? 0.62 : path.startsWith('/app') ? 0.86 : 0.72)
+
+function AppLayout() {
+  const { user, ready } = useAuth()
+  if (!ready) return <div className="center-state"><div className="spinner" /></div>
+  if (!user) return <Navigate to="/login" replace />
+  return (
+    <>
+      <div className="scroll"><Outlet /></div>
+      <TabBar />
+    </>
+  )
+}
+
+export function App() {
+  const { pathname } = useLocation()
+  return (
+    <>
+      <Background />
+      <div className="shell">
+        <main className="phone" style={{ background: `rgba(11,14,17,${alphaFor(pathname)})` }}>
+          <Routes>
+            <Route path="/" element={<div className="scroll"><Landing /></div>} />
+            <Route path="/login" element={<div className="scroll"><Onboarding /></div>} />
+            <Route path="/auth/callback" element={<div className="scroll"><AuthCallback /></div>} />
+            <Route path="/app" element={<AppLayout />}>
+              <Route index element={<Navigate to="portfolio" replace />} />
+              <Route path="portfolio" element={<Portfolio />} />
+              <Route path="safety/:ca?" element={<Safety />} />
+              <Route path="copy" element={<Copy />} />
+              <Route path="profile" element={<Profile />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+      </div>
+      <Toaster />
+    </>
+  )
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Chainfolio",
+  "short_name": "Chainfolio",
+  "description": "Your crypto portfolio on Robinhood Chain — simple and safe.",
+  "start_url": "/app/portfolio",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#06080A",
+  "theme_color": "#06080A",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

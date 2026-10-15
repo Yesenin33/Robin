@@ -1,0 +1,21 @@
+import { NavLink } from 'react-router-dom'
+
+const TABS = [
+  { to: '/app/portfolio', label: 'Portfolio', d: 'M21 12A9 9 0 1 1 12 3v9z' },
+  { to: '/app/safety', label: 'Safety', d: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z' },
+  { to: '/app/copy', label: 'Copy', d: 'M8 8h12v12H8z M4 16V4h12' },
+  { to: '/app/profile', label: 'Profile', d: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4 21c0-4 4-6 8-6s8 2 8 6' },
+]
+
+export function TabBar() {
+  return (
+    <nav className="tabbar">
+      {TABS.map(t => (
+        <NavLink key={t.to} to={t.to} className={({ isActive }) => `tab${isActive ? ' active' : ''}`}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={t.d} /></svg>
+          <span>{t.label}</span>
+        </NavLink>
+      ))}
+    </nav>
+  )
+}

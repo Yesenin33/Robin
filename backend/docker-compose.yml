@@ -50,6 +50,12 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
 
+  web:
+    build: ../frontend
+    restart: unless-stopped
+    ports: ["127.0.0.1:8080:80"]
+    depends_on: [api]
+
 volumes:
   pgdata:
   redisdata:
