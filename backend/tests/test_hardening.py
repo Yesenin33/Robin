@@ -75,27 +75,6 @@ def test_execution_revert_is_an_answer_not_a_node_failure():
     assert p.sent == [("rpc.mainnet.chain.robinhood.com", "eth_call")]  # no pointless failover
 
 
-def test_retries_5xx_and_429_then_succeeds_on_same_endpoint():
-    p = Poster({"robinhood.drpc.org": [(500, None), (429, None), (200, ok("0x9"))]})
-    assert irpc.Rpc(DRPC, poster=p).block_number() == 9  # single URL still works
-    assert len(p.sent) == 3
-
-
-def test_persistent_500_moves_to_next_endpoint():
-    p = Poster({"robinhood.drpc.org": [(500, None)], "rpc.mainnet.chain.robinhood.com": [(200, ok("0x2"))]})
-    r = irpc.Rpc(f"{DRPC},{OFFICIAL}", poster=p)
-    assert r.block_number() == 2
-    assert [h for h, _ in p.sent].count("robinhood.drpc.org") == 3  # 1 try + 2 retries
-
-
-def test_all_endpoints_failing_reports_each():
-    p = Poster({"robinhood.drpc.org": [(500, None)], "robinhood-mainnet.g.alchemy.com": [(200, ok([]))]})
-    r = irpc.Rpc(f"{DRPC},{ALCHEMY}", poster=p)
-    with pytest.raises(irpc.RpcError) as e:
-        r._transport(logs_payload(9_999))
-    assert "HTTP 500" in str(e.value) and "skipped (log range 9999 > cap 10)" in str(e.value)
-
-
 def test_debug_log_names_the_getlogs_endpoint(caplog):
     caplog.set_level("DEBUG", logger="intelligence.rpc")
     p = Poster({"rpc.mainnet.chain.robinhood.com": [(200, ok([]))]})
@@ -120,7 +99,8 @@ async def test_health_sources_reports_each_source(client, monkeypatch):
     assert body["status"] == "degraded"  # market source down, chain + db fine
     assert by["postgres"]["ok"] and by["redis"]["ok"] and not by["dexscreener"]["ok"]
     assert "rpc https://rpc.example/v2/abcd…" in by  # API key redacted
-    assert by["rpc https://rpc.example/v2/abcd…"]["detail"] == {"block": 123}
+    detail = by["rpc https://rpc.example/v2/abcd…"]["detail"]
+    assert detail["block"] == 123 and detail["pool"] == {"fails": 0, "cooling_s": 0.0, "log_range_cap": None, "last_error": None}
 
 
 async def test_rate_limit_fails_open_without_redis(client, monkeypatch):

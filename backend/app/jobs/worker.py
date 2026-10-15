@@ -13,7 +13,7 @@ from app.jobs.copy_job import collect as collect_copy
 from app.jobs.copy_job import drain_backfill
 from app.jobs.discovery_job import discover_pools
 from app.jobs.rank_job import rank_wallets
-from app.jobs.scan_job import drain_priority, drain_queue, refresh_stale, warmup
+from app.jobs.scan_job import drain_priority, drain_queue, drain_retries, refresh_stale, warmup
 from app.jobs.snapshot_job import snapshot_positions
 
 log = get_logger("worker")
@@ -26,6 +26,7 @@ async def main() -> None:
     sched = AsyncIOScheduler(timezone="UTC")
     sched.add_job(drain_priority, "interval", seconds=1, args=[redis], max_instances=1, coalesce=True)
     sched.add_job(drain_queue, "interval", seconds=5, args=[redis], max_instances=1, coalesce=True)
+    sched.add_job(drain_retries, "interval", seconds=5, args=[redis], max_instances=1, coalesce=True)
     sched.add_job(refresh_stale, "interval", minutes=s.safety_refresh_min, args=[redis], max_instances=1)
     sched.add_job(snapshot_positions, "interval", minutes=s.position_snapshot_min, args=[redis], max_instances=1)
     sched.add_job(collect_copy, "interval", minutes=2, args=[redis], max_instances=1, coalesce=True)

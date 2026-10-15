@@ -1,10 +1,17 @@
 """Minimal async JSON-RPC client for Robinhood Chain (EVM)."""
+import asyncio
+import random
 import re
+import time
 from typing import Any
 
 import httpx
 
 from app.core.config import get_settings
+from app.services.intelligence.endpoints import (
+    POOL, EndpointFailure, classify_response, host_of, parse_retry_after, requested_log_range,
+)
+from app.services.intelligence.rpc import CALL_TIME_CAP, MAX_COOLDOWN_WAIT
 
 ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 SEL_BALANCE_OF = "0x70a08231"
@@ -54,12 +61,20 @@ def decode_string(hex_value: str | None) -> str | None:
 
 
 class RPCClient:
-    def __init__(self, url: str | None = None, client: httpx.AsyncClient | None = None):
+    """Async JSON-RPC client (portfolio, position snapshots) on the same endpoint policy as intelligence.rpc.Rpc.
+
+    Big `batch()` calls are split into chunks (RPC_BATCH_SIZE): one request carrying every token in the
+    `tokens` table (800+ eth_calls) is rejected or throttled by most public nodes. An endpoint that answers
+    429 / 5xx / a JSON-RPC error object is skipped for a while (shared EndpointPool) and the next one is tried,
+    so one throttled node can't fail a whole snapshot."""
+
+    def __init__(self, url: str | None = None, client: httpx.AsyncClient | None = None, batch_size: int | None = None):
+        s = get_settings()
         if url is None:
-            s = get_settings()
             url = ",".join([s.rpc_url, *s.rpc_fallback_urls.split(",")])
         self.urls = [u.strip() for u in url.split(",") if u.strip()]
         self.url = self.urls[0]
+        self.batch_size = max(batch_size or s.rpc_batch_size, 1)
         self._client = client or httpx.AsyncClient(timeout=15)
         self._id = 0
 
@@ -67,32 +82,64 @@ class RPCClient:
         return (await self.batch([(method, params)]))[0]
 
     async def batch(self, calls: list[tuple[str, list[Any]]]) -> list[Any]:
-        if not calls:
-            return []
+        out: list[Any] = []
+        for i in range(0, len(calls), self.batch_size):
+            out += await self._chunk(calls[i : i + self.batch_size])
+        return out
+
+    async def _chunk(self, calls: list[tuple[str, list[Any]]]) -> list[Any]:
         payload = []
         for method, params in calls:
             self._id += 1
             payload.append({"jsonrpc": "2.0", "id": self._id, "method": method, "params": params})
-        last: Exception | None = None
-        for url in self.urls:  # fail over in order
-            try:
-                resp = await self._client.post(url, json=payload)
-                resp.raise_for_status()
-                body = resp.json()
-                break
-            except (httpx.HTTPError, ValueError) as e:
-                last = e
-        else:
-            raise RPCError(f"all RPC endpoints failed: {last}")
-        by_id = {r["id"]: r for r in body}
+        body = await self._send(payload)
+        by_id = {r["id"]: r for r in body if isinstance(r, dict) and "id" in r}
         out = []
         for req in payload:
             r = by_id.get(req["id"], {})
-            if "error" in r:
-                out.append(None)  # per-call failure (e.g. reverted balanceOf) shouldn't kill the batch
-            else:
-                out.append(r.get("result"))
+            # a per-call error (e.g. a reverted balanceOf) shouldn't kill the batch
+            out.append(None if "error" in r else r.get("result"))
         return out
+
+    async def _send(self, payload: list[dict]) -> list[dict]:
+        deadline = time.monotonic() + CALL_TIME_CAP
+        span = requested_log_range(payload)
+        errors: dict[str, str] = {}
+        for _ in range(3):
+            usable, wait = POOL.plan(self.urls, span)
+            for url in usable:
+                for quick_retry in (True, False):
+                    try:
+                        body = await self._post(url, payload, deadline, span > 0)
+                    except EndpointFailure as f:
+                        benched = POOL.failure(url, f, span) > 0
+                        errors[host_of(url)] = str(f)
+                        if f.kind == "server" and quick_retry and not benched and time.monotonic() < deadline - 1:
+                            await asyncio.sleep(random.uniform(0.3, 0.7))
+                            continue
+                        break
+                    POOL.success(url)
+                    return body if isinstance(body, list) else [body]
+            usable, wait = POOL.plan(self.urls, span)
+            if usable:
+                continue
+            if wait is None or wait > min(MAX_COOLDOWN_WAIT, deadline - time.monotonic()):
+                break
+            await asyncio.sleep(wait)
+        raise RPCError("all RPC endpoints failed: " + ("; ".join(f"{h}: {m}" for h, m in errors.items()) or "none usable"))
+
+    async def _post(self, url: str, payload: list[dict], deadline: float, is_logs: bool) -> Any:
+        try:
+            resp = await self._client.post(url, json=payload, timeout=min(15.0, max(deadline - time.monotonic(), 1.0)))
+            status, retry_after = resp.status_code, parse_retry_after(resp.headers.get("Retry-After"))
+            try:
+                body = resp.json()
+            except ValueError:
+                body = None
+        except httpx.HTTPError:
+            status, body, retry_after = 0, None, None
+        classify_response(status, body, retry_after, is_logs)
+        return body
 
     # helpers
     async def native_balance(self, address: str) -> int:

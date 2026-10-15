@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 
 import pytest
@@ -33,7 +34,7 @@ class FakeEngine:
 
     def scan(self, address: str) -> ScanReport:
         self.calls += 1
-        return self.r
+        return copy.deepcopy(self.r)  # a real engine builds a fresh report per scan
 
 
 def test_sell_impact_constant_product():

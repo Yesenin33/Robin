@@ -28,6 +28,13 @@ class ScanInProgress(Exception):
     pass
 
 
+def is_incomplete(report: ScanReport, holders_stale_at: datetime | None) -> bool:
+    """A scan that produced a verdict but lacks what the Safety screen would show as dashes (holders, token
+    identity) because a source failed. Worth a retry; a token that simply has no pool is not incomplete."""
+    return holders_stale_at is not None or (
+        bool(report.errors) and (report.holders_count is None or report.symbol is None))
+
+
 # ---------- presentation (unit-tested) ----------
 # Score, verdict and risk lines come from intelligence.scoring via the scan result;
 # this module only turns them into the Safety screen: summary + exactly 4 metrics.
@@ -94,6 +101,8 @@ class SafetyService:
     def __init__(self, db: AsyncSession, redis: Redis, engine: ScanEngine):
         self.db, self.redis, self.engine = db, redis, engine
         self.s = get_settings()
+        self.last_report: ScanReport | None = None  # the most recent scan() of this instance
+        self.last_incomplete = False
 
     @staticmethod
     def cache_key(ca: str) -> str:
@@ -131,8 +140,11 @@ class SafetyService:
             holders_stale_at = await self._fill_stale_holders(report)
             out = evaluate(report)
             out.holders_stale_at = holders_stale_at
+            self.last_report = report
+            self.last_incomplete = is_incomplete(report, holders_stale_at)
             await self._persist(report, out)
-            await self._cache(out)
+            # an incomplete result is shown briefly, then re-scanned: it must not sit in the cache for 10 minutes
+            await self._cache(out, ttl=60 if self.last_incomplete else None)
             await self.redis.delete(f"safety:stale:{ca}")
             log.info("safety_scanned", ca=ca, engine=report.engine or self.engine.name, sources=report.sources,
                      errors=report.errors, score=out.score, verdict=out.verdict)
@@ -162,8 +174,8 @@ class SafetyService:
         r.errors.append(f"holders: showing last good snapshot from {ts:%Y-%m-%d %H:%M} UTC (stale)")
         return ts
 
-    async def _cache(self, out: SafetyOut) -> None:
-        await self.redis.set(self.cache_key(out.address), out.model_dump_json(), ex=self.s.safety_cache_ttl_s)
+    async def _cache(self, out: SafetyOut, ttl: int | None = None) -> None:
+        await self.redis.set(self.cache_key(out.address), out.model_dump_json(), ex=ttl or self.s.safety_cache_ttl_s)
 
     async def _fresh_from_db(self, ca: str, max_age: bool = True) -> SafetyOut | None:
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=self.s.safety_stale_min)
@@ -176,6 +188,9 @@ class SafetyService:
         score, token = row
         ts = score.ts if score.ts.tzinfo else score.ts.replace(tzinfo=timezone.utc)
         if max_age and ts < cutoff:
+            return None
+        # an incomplete row (dashes) is only served while the token is in backoff; otherwise re-scan it
+        if max_age and score.metrics.get("incomplete") and not await self.redis.exists(f"scan:cool:{ca}"):
             return None
         return SafetyOut(
             address=ca, symbol=token.symbol, name=token.name, score=score.score, verdict=score.verdict,
@@ -200,7 +215,8 @@ class SafetyService:
             token_id=token.id, score=out.score, verdict=out.verdict, swarm_verdict=out.swarm_verdict,
             risks=out.risks,
             metrics={"summary": out.summary, "items": [m.model_dump() for m in out.metrics],
-                     "holders_stale_at": out.holders_stale_at.isoformat() if out.holders_stale_at else None},
+                     "holders_stale_at": out.holders_stale_at.isoformat() if out.holders_stale_at else None,
+                     "incomplete": self.last_incomplete},
             raw=json.loads(json.dumps(r.raw, default=str)),
         ))
         await self.db.commit()

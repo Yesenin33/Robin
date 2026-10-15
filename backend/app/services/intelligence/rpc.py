@@ -1,52 +1,52 @@
 """Synchronous JSON-RPC client (stdlib) with endpoint failover.
 
-`url` may be a comma-separated list. For every call the endpoints are tried in order:
-  * an endpoint that caps eth_getLogs below the requested range is skipped for that call;
-  * HTTP 429 / 5xx / network errors are retried (0.5 s, 1.5 s) within a per-call time cap;
-  * a JSON-RPC `error` that means "this node can't serve this" (range/tier limits, method not
-    supported, rate limited) fails the attempt and moves on; execution reverts are real answers;
-  * an endpoint is promoted to the front only after a clean answer.
+`url` may be a comma-separated list. Every call walks the endpoints in order, skipping the ones the shared
+EndpointPool says are cooling down or too narrow for the requested eth_getLogs range (see endpoints.py):
+  * HTTP 429 / a rate-limit error: that endpoint cools down (Retry-After honoured, exponential + jitter),
+    we move on at once - never a hot retry against the node that is throttling us;
+  * HTTP 5xx / network error: one quick jittered retry, then the next endpoint; repeated failures bench the
+    endpoint for a growing time, so a node that is simply broken stops being hit at all;
+  * a JSON-RPC `error` the node can't serve (tier/range limits, unsupported method, internal error) fails
+    that attempt; a range error also teaches the pool a smaller cap; execution reverts are real answers;
+  * if every capable endpoint is cooling, wait for the first one to return (bounded) instead of failing;
+  * an endpoint moves to the front only after a clean answer;
+  * eth_getLogs bursts are limited process-wide (RPC_LOGS_CONCURRENCY, RPC_LOGS_MIN_INTERVAL_MS) and can
+    prefer their own endpoint list (RPC_LOGS_URLS) - the official node throttles log bursts first.
 `transport` replaces all of this (tests); `poster` replaces only the HTTP layer (failover tests).
 """
 import json
 import logging
-import re
+import random
+import threading
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlparse
+
+from app.services.intelligence import config as _cfg
+from app.services.intelligence.endpoints import (  # noqa: F401 — re-exported for callers and tests
+    LOG_RANGE_CAPS, POOL, EndpointFailure, classify_response, host_of, is_node_error, log_range_cap,
+    parse_retry_after, requested_log_range,
+)
 
 ZERO = "0x0000000000000000000000000000000000000000"
 DEAD = "0x000000000000000000000000000000000000dead"
 TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 Transport = Callable[[list[dict]], list[dict]]
-Poster = Callable[[str, list[dict], float], tuple[int, Any]]  # (url, payload, timeout) -> (http status, body)
+# (url, payload, timeout) -> (http status, body) or (status, body, Retry-After header)
+Poster = Callable[[str, list[dict], float], tuple]
 
 log = logging.getLogger("intelligence.rpc")
 
-# Max eth_getLogs block range per endpoint host (None = wide ranges). Measured on Robinhood Chain.
-LOG_RANGE_CAPS: dict[str, int | None] = {
-    "rpc.mainnet.chain.robinhood.com": None,  # official node: wide ranges, free
-    "robinhood.drpc.org": 10_000,
-    "alchemy.com": 10,  # free tier: 10-block ranges -> unusable for log scans
-}
-RETRY_BACKOFF = (0.5, 1.5)
-CALL_TIME_CAP = 45.0  # seconds for one call across all retries and endpoints
+CALL_TIME_CAP = 45.0  # seconds for one call across all retries, waits and endpoints
+MAX_COOLDOWN_WAIT = 20.0  # longest we sleep for a cooling endpoint inside one call
 REQUEST_TIMEOUT = 15.0
 UA = {"User-Agent": "chainfolio-intelligence/1.0", "Content-Type": "application/json"}
-_NODE_ERROR = re.compile(r"range|limit|tier|plan|rate|too many|exceed|not supported|unsupported|"
-                         r"does not exist|not available|unavailable|timeout|timed out|capacity|archive", re.I)
-_NODE_CODES = {-32005, -32600, -32601, -32603, -32004, -32001, 429}
 
 
 class RpcError(RuntimeError):
-    pass
-
-
-class _Retryable(Exception):
     pass
 
 
@@ -62,114 +62,136 @@ def pad_addr(a: str) -> str:
     return a.lower().removeprefix("0x").rjust(64, "0")
 
 
-def log_range_cap(url: str) -> int | None:
-    host = (urlparse(url).hostname or "").lower()
-    for key, cap in LOG_RANGE_CAPS.items():
-        if host == key or host.endswith("." + key) or host.endswith(key):
-            return cap
-    return None
-
-
-def requested_log_range(payload: list[dict]) -> int:
-    """Largest eth_getLogs block span in the payload (0 = no getLogs)."""
-    span = 0
-    for c in payload:
-        if c.get("method") == "eth_getLogs":
-            f = (c.get("params") or [{}])[0]
-            lo, hi = f.get("fromBlock"), f.get("toBlock")
-            if isinstance(lo, str) and isinstance(hi, str) and lo.startswith("0x") and hi.startswith("0x"):
-                span = max(span, int(hi, 16) - int(lo, 16) + 1)
-            else:
-                span = max(span, 10**9)  # "latest"/"earliest": assume wide
-    return span
-
-
-def is_node_error(err: Any) -> bool:
-    """True when the error means this endpoint can't serve the request (try another one)."""
-    if not isinstance(err, dict):
-        return True
-    msg = str(err.get("message", ""))
-    if "revert" in msg.lower():
-        return False  # contract execution result: a genuine answer
-    return err.get("code") in _NODE_CODES or bool(_NODE_ERROR.search(msg))
-
-
-def _http_post(url: str, payload: list[dict], timeout: float) -> tuple[int, Any]:
+def _http_post(url: str, payload: list[dict], timeout: float) -> tuple[int, Any, str | None]:
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=UA)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
-            return r.status, json.loads(r.read())
+            return r.status, json.loads(r.read()), None
     except urllib.error.HTTPError as e:
         try:
             body = json.loads(e.read())
         except Exception:  # noqa: BLE001
             body = None
-        return e.code, body
+        return e.code, body, (e.headers.get("Retry-After") if e.headers else None)
+
+
+class _LogsGate:
+    """Process-wide limit on concurrent eth_getLogs and a minimum spacing between them.
+
+    Scans, discovery, ranking and the copy collector all read logs from worker threads at once; unthrottled
+    they burst the node past its limit and every one of them then fails together."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._sem: threading.BoundedSemaphore | None = None
+        self._next = 0.0
+
+    def reset(self) -> None:
+        with self._lock:
+            self._sem, self._next = None, 0.0
+
+    def __enter__(self) -> "_LogsGate":
+        with self._lock:
+            if self._sem is None:
+                self._sem = threading.BoundedSemaphore(max(1, _cfg.logs_concurrency()))
+            sem = self._sem
+        sem.acquire()
+        self._held = sem
+        interval = _cfg.logs_min_interval()
+        if interval > 0:
+            with self._lock:
+                now = time.monotonic()
+                slot = max(now, self._next)
+                self._next = slot + interval
+            if slot > now:
+                time.sleep(slot - now)
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._held.release()
+
+
+LOGS_GATE = _LogsGate()
+
+
+class _NullGate:
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, *exc: object) -> None:
+        return None
 
 
 class Rpc:
-    def __init__(self, url: str, transport: Transport | None = None, poster: Poster | None = None):
+    def __init__(self, url: str, transport: Transport | None = None, poster: Poster | None = None,
+                 logs_urls: list[str] | None = None):
         self.urls = [u.strip() for u in url.split(",") if u.strip()]
         self.url = self.urls[0] if self.urls else url
+        self.logs_urls = _cfg.logs_urls() if logs_urls is None else logs_urls
         self._poster = poster or _http_post
         self._transport = transport or self._failover
         self._id = 0
 
-    def _attempt(self, url: str, payload: list[dict], deadline: float) -> Any:
-        """One endpoint, with retries on 429/5xx/network errors. Raises on failure."""
-        last = ""
-        for i in range(len(RETRY_BACKOFF) + 1):
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise RpcError(f"time cap reached ({last or 'no answer'})")
-            try:
-                status, body = self._poster(url, payload, min(REQUEST_TIMEOUT, remaining))
-            except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as e:
-                status, body, last = 0, None, f"{type(e).__name__}: {e}"
-            if status == 429 or status >= 500 or status == 0:
-                last = last if status == 0 else f"HTTP {status}"
-                if i < len(RETRY_BACKOFF) and deadline - time.monotonic() > RETRY_BACKOFF[i]:
-                    time.sleep(RETRY_BACKOFF[i])
-                    continue
-                raise RpcError(last)
-            if status >= 400 and body is None:
-                raise RpcError(f"HTTP {status}")
-            # JSON-RPC level: single error object, or a batch containing node errors
-            if isinstance(body, dict) and "error" in body and "result" not in body:
-                if is_node_error(body["error"]):
-                    raise RpcError(f"rpc error {body['error']}")
-            elif isinstance(body, list):
-                bad = [r["error"] for r in body if isinstance(r, dict) and "error" in r and is_node_error(r["error"])]
-                if bad:
-                    raise RpcError(f"rpc error {bad[0]}")
-            elif not isinstance(body, dict):
-                raise RpcError("malformed response")
-            if status >= 400:
-                raise RpcError(f"HTTP {status}")
-            return body
-        raise RpcError(last)
+    def _attempt(self, url: str, payload: list[dict], deadline: float, is_logs: bool) -> Any:
+        """One HTTP request to one endpoint. Raises EndpointFailure unless the answer is usable."""
+        timeout = min(REQUEST_TIMEOUT, max(deadline - time.monotonic(), 1.0))
+        retry_after = None
+        try:
+            res = self._poster(url, payload, timeout)
+            status, body = res[0], res[1]
+            retry_after = parse_retry_after(res[2]) if len(res) > 2 else None
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError):
+            status, body = 0, None
+        classify_response(status, body, retry_after, is_logs)
+        return body
+
+    def _order(self, is_logs: bool) -> list[str]:
+        if not is_logs or not self.logs_urls:
+            return list(self.urls)
+        return [*self.logs_urls, *[u for u in self.urls if u not in self.logs_urls]]
 
     def _failover(self, payload: list[dict]) -> Any:
-        deadline = time.monotonic() + CALL_TIME_CAP
         span = requested_log_range(payload)
-        errors: list[str] = []
-        for url in list(self.urls):
-            cap = log_range_cap(url)
-            if span and cap is not None and span > cap:
-                errors.append(f"{urlparse(url).hostname}: skipped (log range {span} > cap {cap})")
-                continue
-            try:
-                body = self._attempt(url, payload, deadline)
-            except RpcError as e:
-                errors.append(f"{urlparse(url).hostname}: {e}")
-                continue
-            if span:
-                log.debug("eth_getLogs served by %s (range %d)", urlparse(url).hostname, span)
-            if self.urls[0] != url:  # promote only after a clean answer
-                self.urls.remove(url)
-                self.urls.insert(0, url)
-            return body
-        raise RpcError("all RPC endpoints failed: " + "; ".join(errors))
+        is_logs = span > 0
+        with (LOGS_GATE if is_logs else _NullGate()):
+            return self._walk(payload, span, is_logs)
+
+    def _walk(self, payload: list[dict], span: int, is_logs: bool) -> Any:
+        deadline = time.monotonic() + CALL_TIME_CAP
+        urls = self._order(is_logs)
+        errors: dict[str, str] = {}
+        for _ in range(3):  # initial pass + at most two more after waiting for a cooling endpoint
+            usable, wait = POOL.plan(urls, span)
+            for url in usable:
+                for quick_retry in (True, False):
+                    try:
+                        body = self._attempt(url, payload, deadline, is_logs)
+                    except EndpointFailure as f:
+                        benched = POOL.failure(url, f, span) > 0
+                        errors[host_of(url)] = str(f)
+                        # one blip on a healthy endpoint gets a single jittered retry; a benched one never does
+                        if f.kind == "server" and quick_retry and not benched and time.monotonic() < deadline - 1:
+                            time.sleep(random.uniform(0.3, 0.7))
+                            continue
+                        break
+                    POOL.success(url)
+                    if is_logs:
+                        log.debug("eth_getLogs served by %s (range %d)", host_of(url), span)
+                    if url in self.urls and self.urls[0] != url:  # promote only after a clean answer
+                        self.urls.remove(url)
+                        self.urls.insert(0, url)
+                    return body
+            usable, wait = POOL.plan(urls, span)
+            if usable:
+                continue  # a failure carried no cooldown (a single blip): go around once more
+            if wait is None or wait > min(MAX_COOLDOWN_WAIT, deadline - time.monotonic()):
+                break
+            time.sleep(wait)  # every capable endpoint is cooling: wait for the first one, don't hot-loop
+        skipped = [host_of(u) for u in urls if span and (cap := POOL.effective_cap(u)) is not None and span > cap]
+        detail = "; ".join(f"{h}: {m}" for h, m in errors.items()) or "no capable endpoint"
+        if skipped:
+            detail += f"; skipped (log range {span} too wide): {', '.join(skipped)}"
+        raise RpcError("all RPC endpoints failed: " + detail)
 
     def batch(self, calls: list[tuple[str, list[Any]]], size: int = 100) -> list[Any]:
         """Results in order; a failed sub-call yields None (doesn't fail the batch)."""

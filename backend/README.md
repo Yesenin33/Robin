@@ -72,6 +72,7 @@ Scans run in a thread with a timeout, guarded by a Redis lock per token (202 whi
 |---|---|---|
 | `discover_pools` | 5 min | V4 PoolManager `Initialize` logs from a Redis cursor -> new `tokens` (+ scan queued) |
 | `collect` (copy) | 2 min | followed wallets' swaps in any token since the cursor; ETH leg from receipts; follower alerts |
+| `drain_retries` | 5 s | failed/incomplete scans come back after 30 s / 2 min / 8 min (3 tries), then the token rests for 1 h |
 | `drain_priority` / `drain_queue` | 1 s / 5 s | user refreshes (own queue, never behind bulk) / bulk scans, `SCAN_CONCURRENCY` at a time, queue capped at `SCAN_QUEUE_MAX` |
 | `drain_backfill` | 20 s | first-follow history: explorer token-transfers, RPC log scan if the explorer is down |
 | `rank_wallets` | 60 min | realised **USD** PnL x hit rate over the newest pools -> `smart_wallets` (quote legs valued via `QUOTE_TOKENS`) |
@@ -79,6 +80,15 @@ Scans run in a thread with a timeout, guarded by a Redis lock per token (202 whi
 | `deliver` | 30 s | Telegram + Web Push, `ALERTS_PER_HOUR` per user; stores `tg_message_id` |
 | `price_moves` | 10 min | holders alerted on a >= `PRICE_MOVE_PCT` move |
 | scan queue / stale refresh / position snapshots | 5 s / 30 min / 5 min | as before |
+
+## RPC reliability
+
+All RPC callers (scans, jobs, portfolio snapshots) share one endpoint policy (`intelligence/endpoints.py`):
+429 cools an endpoint for `Retry-After` / exponential backoff with jitter, repeated 5xx bench it, JSON-RPC error
+bodies count as failures, `eth_getLogs` is never sent to an endpoint whose range cap is smaller, getLogs bursts
+are bounded (`RPC_LOGS_CONCURRENCY`), and `RPC_LOGS_URLS` can prefer a different node for them.
+`python -m scripts.rpc_probe` shows what each configured node actually serves; `/health/sources` shows each
+node's cooldown, failure count and learned log-range cap.
 
 ## Verify on the server
 

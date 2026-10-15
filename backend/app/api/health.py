@@ -11,6 +11,7 @@ from app.core.db import SessionLocal
 from app.core.redis import get_redis
 from app.services.engine.loader import rpc_urls
 from app.services.intelligence.config import get_chain
+from app.services.intelligence.endpoints import POOL
 from app.services.intelligence.http import get_json
 from app.services.intelligence.rpc import Rpc
 
@@ -46,8 +47,11 @@ async def collect() -> dict:
         return await get_redis().ping()
 
     probes = [_probe("postgres", db), _probe("redis", redis)]
-    for url in rpc_urls().split(","):
-        probes.append(_probe(f"rpc {_redact(url)}", lambda u=url: {"block": Rpc(u).block_number()}))
+    from app.services.intelligence.config import logs_urls
+
+    for url in dict.fromkeys([*rpc_urls().split(","), *logs_urls()]):
+        probes.append(_probe(f"rpc {_redact(url)}", lambda u=url: {"block": Rpc(u).block_number(),
+                                                                   "pool": POOL.snapshot(u)}))
     if cfg.explorer_api:
         probes.append(_probe("explorer", lambda: {"total_blocks": get_json(
             f"{cfg.explorer_api.rstrip('/')}/api/v2/stats", tries=1).get("total_blocks")}))

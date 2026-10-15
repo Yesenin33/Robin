@@ -15,6 +15,15 @@ def rpc_urls() -> str:
     return ",".join(u.strip() for u in [s.rpc_url, *s.rpc_fallback_urls.split(",")] if u.strip())
 
 
+def apply_rpc_config() -> None:
+    """Hand the RPC pacing settings to the intelligence package (jobs call this before they build an Rpc)."""
+    from app.services import intelligence
+
+    s = get_settings()
+    intelligence.configure(rpc_logs_urls=s.rpc_logs_urls, rpc_logs_concurrency=s.rpc_logs_concurrency,
+                           rpc_logs_min_interval_ms=s.rpc_logs_min_interval_ms)
+
+
 @lru_cache
 def get_engine() -> ScanEngine:
     s = get_settings()
@@ -24,6 +33,7 @@ def get_engine() -> ScanEngine:
 
         intelligence.configure(dexscreener_chain=s.dexscreener_chain, geckoterminal_network=s.geckoterminal_network)
         return BuiltinEngine(s.chain_name)
+    apply_rpc_config()
     engine = IntelligenceEngine(
         s.chain_name, chain_id=s.chain_id, rpc_url=rpc_urls(), explorer_api_url=s.explorer_api_url,
         explorer_proxy_prefix=s.explorer_proxy_prefix, explorer_proxy_key=s.explorer_proxy_key or None,

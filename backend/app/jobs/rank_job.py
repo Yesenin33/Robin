@@ -28,6 +28,8 @@ async def rank_wallets(redis: Redis | None = None, rpc=None) -> int:
     head = await asyncio.to_thread(rpc.block_number)
     trades: list[chain_index.Trade] = []
     for t in tokens:
+        if await redis.exists(f"rank:cool:{t.address}"):
+            continue  # failed recently: don't hammer the node with the same token every run
         start = max(t.pool_init_block or 0, head - s.rank_window_blocks)
         try:
             tt = await asyncio.to_thread(chain_index.token_trades, rpc, t.address, start, head, s.log_chunk_blocks,
@@ -35,6 +37,7 @@ async def rank_wallets(redis: Redis | None = None, rpc=None) -> int:
             trades += await pricing.enrich_and_value(SessionLocal, redis, rpc, tt)
         except Exception as e:  # noqa: BLE001 — one bad token shouldn't sink the run
             log.warning("rank_token_failed", token=t.address, error=str(e))
+            await redis.set(f"rank:cool:{t.address}", "1", ex=1200)
 
     # routers/contracts are not people to follow
     candidates = sorted({t.wallet for t in trades})

@@ -90,3 +90,16 @@ async def signed_in(client):
     r = await client.post("/auth/siwe", json={"message": msg, "signature": sign(acct, msg)})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['access_token']}"}, acct.address.lower(), acct
+
+
+@pytest.fixture(autouse=True)
+def _reset_rpc_state():
+    """Endpoint cooldowns / learned caps / the getLogs gate are process-wide: never leak between tests."""
+    from app.services.intelligence.endpoints import POOL
+    from app.services.intelligence.rpc import LOGS_GATE
+
+    POOL.reset()
+    LOGS_GATE.reset()
+    yield
+    POOL.reset()
+    LOGS_GATE.reset()

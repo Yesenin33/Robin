@@ -1,5 +1,7 @@
 """Safety scans: on-demand queue (Redis list) + periodic refresh of stale tokens."""
 import asyncio
+import random
+import time
 from datetime import datetime, timedelta, timezone
 
 from redis.asyncio import Redis
@@ -19,12 +21,27 @@ PRIO_QUEUE = "scan:queue:prio"  # user-requested refreshes: never wait behind bu
 PRIO_SET = "scan:queued:prio"
 
 
+RETRY_ZSET = "scan:retry"  # members "p:<ca>" / "b:<ca>", score = due time (epoch s)
+
+
 def stale_marker(ca: str) -> str:
     return f"safety:stale:{ca}"
 
 
-async def enqueue_scan(redis: Redis, ca: str, priority: bool = False) -> bool:
-    """Queue a scan, deduped. Bulk is capped (SCAN_QUEUE_MAX); priority is not and jumps the bulk queue."""
+def fails_key(ca: str) -> str:
+    return f"scan:fails:{ca}"  # consecutive failed/incomplete scans (expires after 6 h of quiet)
+
+
+def cool_key(ca: str) -> str:
+    return f"scan:cool:{ca}"  # present = in backoff: bulk jobs must not re-queue this token
+
+
+async def enqueue_scan(redis: Redis, ca: str, priority: bool = False, force: bool = False) -> bool:
+    """Queue a scan, deduped. Bulk is capped (SCAN_QUEUE_MAX); priority is not and jumps the bulk queue.
+
+    A token in backoff (it failed recently) is skipped by bulk callers - discovery, warmup, refresh_stale -
+    so a failing token can't be re-queued every few minutes; only its scheduled retry (`force`) or a user
+    refresh gets through."""
     if priority:
         # a bulk entry for the same token is now redundant
         await redis.lrem(QUEUE, 0, ca)
@@ -34,6 +51,8 @@ async def enqueue_scan(redis: Redis, ca: str, priority: bool = False) -> bool:
             return True
         return False
     if await redis.sismember(PRIO_SET, ca):
+        return False
+    if not force and await redis.exists(cool_key(ca)):
         return False
     if await redis.llen(QUEUE) >= get_settings().scan_queue_max:
         return False  # bounded: refresh_stale re-adds what was dropped
@@ -45,21 +64,69 @@ async def enqueue_scan(redis: Redis, ca: str, priority: bool = False) -> bool:
 
 async def request_refresh(redis: Redis, ca: str) -> None:
     """User asked for a fresh scan: invalidate what GET would serve, then queue at top priority."""
-    await redis.delete(f"safety:{ca}")
+    await redis.delete(f"safety:{ca}", fails_key(ca), cool_key(ca))  # a user's request starts from a clean slate
     await redis.set(stale_marker(ca), "1", ex=get_settings().refresh_marker_ttl_s)
     await enqueue_scan(redis, ca, priority=True)
+
+
+def retry_delay(attempt: int, rand=random.uniform) -> float:
+    """Seconds before retry number `attempt` (1-based): SCAN_RETRY_DELAYS, jittered +-20%."""
+    delays = [float(x) for x in get_settings().scan_retry_delays.split(",") if x.strip()] or [30.0]
+    return delays[min(attempt, len(delays)) - 1] * rand(0.8, 1.2)
+
+
+async def note_success(redis: Redis, ca: str) -> None:
+    await redis.delete(fails_key(ca), cool_key(ca))
+
+
+async def note_failure(redis: Redis, ca: str, priority: bool, reason: str) -> str:
+    """Count a failed/incomplete scan. Returns "retry" (scheduled with backoff) or "gave_up" (cap reached)."""
+    s = get_settings()
+    n = await redis.incr(fails_key(ca))
+    await redis.expire(fails_key(ca), 6 * 3600)
+    if n > s.scan_retry_max:
+        await redis.set(cool_key(ca), "1", ex=s.scan_give_up_cooldown_s)
+        log.warning("scan_gave_up", ca=ca, attempts=n, reason=reason)
+        return "gave_up"
+    delay = retry_delay(n)
+    await redis.zadd(RETRY_ZSET, {f"{'p' if priority else 'b'}:{ca}": time.time() + delay})
+    await redis.set(cool_key(ca), "1", ex=int(delay) + 60)
+    log.info("scan_retry_scheduled", ca=ca, attempt=n, of=s.scan_retry_max, in_s=round(delay), reason=reason)
+    return "retry"
+
+
+async def drain_retries(redis: Redis, max_items: int = 20) -> int:
+    """Move retries that are due into the scan queues (past the cool-off that scheduled them)."""
+    due = await redis.zrangebyscore(RETRY_ZSET, "-inf", time.time(), start=0, num=max_items)
+    moved = 0
+    for member in due:
+        if not await redis.zrem(RETRY_ZSET, member):
+            continue  # another worker took it
+        kind, _, ca = member.partition(":")
+        if kind == "p":
+            await redis.set(stale_marker(ca), "1", ex=get_settings().refresh_marker_ttl_s)
+        moved += await enqueue_scan(redis, ca, priority=kind == "p", force=True)
+    return moved
 
 
 async def run_scan(redis: Redis, ca: str, priority: bool = False) -> None:
     if priority and not await redis.exists(stale_marker(ca)):
         return  # someone (the API's GET) already produced the fresh scan
     async with SessionLocal() as db:
+        svc = SafetyService(db, redis, get_engine())
         try:
-            await SafetyService(db, redis, get_engine()).scan(ca, priority=priority)
+            await svc.scan(ca, priority=priority)
         except ScanInProgress:
             log.info("scan_skip_in_progress", ca=ca)
+            return
         except Exception as e:  # noqa: BLE001
             log.error("scan_failed", ca=ca, error=str(e))
+            await note_failure(redis, ca, priority, str(e)[:200])
+            return
+    if svc.last_incomplete:
+        await note_failure(redis, ca, priority, "incomplete: " + "; ".join((svc.last_report.errors or [])[:2])[:200])
+    else:
+        await note_success(redis, ca)
 
 
 async def _drain(redis: Redis, queue: str, queued: str, max_items: int, concurrency: int, priority: bool) -> int:

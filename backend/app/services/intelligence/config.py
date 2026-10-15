@@ -36,6 +36,19 @@ def proxy_key() -> str:
     return _overrides.get("EXPLORER_PROXY_KEY") or os.environ.get("EXPLORER_PROXY_KEY", "").strip()
 
 
+def logs_urls() -> list[str]:
+    """Endpoints preferred for eth_getLogs (before the general list)."""
+    return [u.strip() for u in _env("RPC_LOGS_URLS", "").split(",") if u.strip()]
+
+
+def logs_concurrency() -> int:
+    return max(int(_env("RPC_LOGS_CONCURRENCY", "2") or 2), 1)
+
+
+def logs_min_interval() -> float:
+    return max(int(_env("RPC_LOGS_MIN_INTERVAL_MS", "100") or 0), 0) / 1000
+
+
 def explorer_base() -> str:
     return _env("EXPLORER_API_URL", "https://robinhoodchain.blockscout.com").rstrip("/")
 

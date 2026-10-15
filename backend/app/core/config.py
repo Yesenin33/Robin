@@ -58,11 +58,22 @@ class Settings(BaseSettings):
     warmup_tokens: int = 20  # most-requested tokens kept scanned before their cache expires
 
     # Extra data-source settings (production)
-    rpc_fallback_urls: str = ""  # comma-separated, tried in order when RPC_URL fails (e.g. Alchemy first)
+    # comma-separated, tried in order when RPC_URL fails or is cooling down (429 / 5xx). Do NOT list nodes that
+    # never answer here (robinhood.drpc.org returns 500 on eth_getLogs): they only add latency.
+    rpc_fallback_urls: str = ""
+    # endpoints tried FIRST for eth_getLogs bursts (the official node throttles those first); the general
+    # RPC_URL / fallbacks follow. Example: https://robinhood-rpc.publicnode.com
+    rpc_logs_urls: str = ""
+    rpc_logs_concurrency: int = 2  # eth_getLogs in flight across the whole process (scans, indexer, copy, rank)
+    rpc_logs_min_interval_ms: int = 100  # minimum spacing between eth_getLogs calls
+    rpc_batch_size: int = 50  # JSON-RPC calls per HTTP request (portfolio / snapshots)
     explorer_proxy_key: str = ""  # bearer key for the explorer read proxy (r.jina.ai API key)
 
     # Scan queues
     scan_queue_max: int = 300  # bulk queue length cap; overflow is dropped and picked up by refresh_stale later
+    scan_retry_max: int = 3  # automatic retries per token after a failed/incomplete scan, then a cool-off
+    scan_retry_delays: str = "30,120,480"  # seconds before retry 1, 2, 3 (jittered +-20%)
+    scan_give_up_cooldown_s: int = 3600  # no automatic re-queueing for this long after the retries ran out
     scan_concurrency: int = 4  # scans run at once per drain
     scan_bulk_per_tick: int = 8  # bulk scans started per 5 s tick
     refresh_batch: int = 40  # stale tokens enqueued per refresh_stale run
