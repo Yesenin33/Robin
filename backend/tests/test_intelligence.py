@@ -8,6 +8,13 @@ from app.services.intelligence.holders import Transfer
 from app.services.intelligence.http import HttpError
 from app.services.intelligence.rpc import TRANSFER_TOPIC, ZERO, pad_addr
 
+
+@pytest.fixture(autouse=True)
+def _offline_sources():
+    """These tests mock the chain and market; keep the real explorer defaults out of the way."""
+    intelligence.configure(explorer_api_url="", explorer_proxy_prefix="")
+
+
 E18 = 10**18
 T = "0x" + "70" * 20  # token
 P = "0x" + "50" * 20  # pool

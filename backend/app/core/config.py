@@ -18,14 +18,19 @@ class Settings(BaseSettings):
 
     # Robinhood Chain
     chain_id: int = 4663
-    rpc_url: str = "https://rpc.chain.robinhood.com"
+    rpc_url: str = "https://rpc.mainnet.chain.robinhood.com"
     native_symbol: str = "ETH"
 
     chain_name: str = "robinhood"
-    explorer_api_url: str = ""  # Blockscout-compatible; empty = holders from Transfer-log replay
+    # Blockscout-compatible explorer API; "" = holders come from Transfer-log replay (slow, needs a node)
+    explorer_api_url: str = "https://robinhoodchain.blockscout.com"
+    # The Robinhood Blockscout sits behind a Cloudflare challenge; explorer reads go through this
+    # read proxy, which returns the JSON payload. Set "" to call the explorer directly.
+    explorer_proxy_prefix: str = "https://r.jina.ai"
     dexscreener_chain: str = "robinhood"
     geckoterminal_network: str = "robinhood"
-    holder_scan_blocks: int = 200_000
+    holder_scan_blocks: int = 60_000
+    log_chunk_blocks: int = 9_999
 
     # Token analytics: "intelligence" (in-repo, default) | "builtin" (market-only, offline dev)
     scan_engine: str = "intelligence"
