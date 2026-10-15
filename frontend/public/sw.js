@@ -1,5 +1,7 @@
 // App-shell service worker: cache static assets, never cache API responses.
-const CACHE = 'chainfolio-v1'
+// Bump CACHE on any change to this file's behaviour: old caches are dropped on activate.
+// Navigations are network-first, so a deploy is picked up on the next load (shell cache = offline only).
+const CACHE = 'chainfolio-v2'
 const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg']
 
 self.addEventListener('install', e => {

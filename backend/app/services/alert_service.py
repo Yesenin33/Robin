@@ -131,7 +131,8 @@ async def deliver_pending(db: AsyncSession, redis: Redis, sender: Sender) -> dic
             continue
         user = await db.get(User, a.user_id)
         subs = (await db.execute(select(PushSubscription).where(PushSubscription.user_id == a.user_id))).scalars().all()
-        want_tg = bool(user and user.telegram_chat_id and s.telegram_bot_token) and a.delivered_tg_at is None
+        want_tg = bool(user and user.telegram_chat_id and user.telegram_alerts and s.telegram_bot_token) \
+            and a.delivered_tg_at is None
         want_push = bool(subs and s.vapid_private_key) and a.delivered_push_at is None and user and user.push_enabled
         if not (want_tg or want_push):
             payload["done"] = True  # no channel: in-app only

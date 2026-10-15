@@ -13,7 +13,7 @@ from app.core.db import SessionLocal
 from app.core.logging import get_logger
 from app.jobs.scan_job import enqueue_scan
 from app.models import Token
-from app.services import chain_index
+from app.services import chain_index, pricing
 from app.services.chain import make_rpc
 from app.services.copy_service import ensure_tokens
 from app.services.intelligence.rpc import ZERO
@@ -34,6 +34,9 @@ async def discover_pools(redis: Redis, from_block: int | None = None, rpc=None) 
         return {"pools": 0, "new_tokens": 0, "head": head}
 
     pools = await asyncio.to_thread(chain_index.new_pools, rpc, start, end, s.log_chunk_blocks)
+    async with SessionLocal() as db:
+        await pricing.save_pools(db, {p.pool_id: (p.currency0, p.currency1) for p in pools},
+                                 {p.pool_id: p.block for p in pools})
     weth = s.weth_address.lower() or None
     by_token: dict[str, chain_index.Pool] = {}
     for p in pools:

@@ -17,5 +17,15 @@ createRoot(document.getElementById('root')!).render(
 )
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => { void navigator.serviceWorker.register('/sw.js') })
+  window.addEventListener('load', () => {
+    // updateViaCache:'none' -> the browser always re-checks sw.js, so a deploy reaches users promptly
+    void navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(r => r.update())
+  })
+  // A new worker took over (skipWaiting + clients.claim): reload once onto the new bundle
+  // (not on the very first visit, when there was no previous worker)
+  const hadController = !!navigator.serviceWorker.controller
+  let reloaded = false
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController && !reloaded) { reloaded = true; window.location.reload() }
+  })
 }

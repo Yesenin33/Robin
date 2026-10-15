@@ -58,7 +58,10 @@ Scans run in a thread with a timeout, guarded by a Redis lock per token (202 whi
 | POST/DELETE | `/copy/subscribe` | follow/unfollow; first follow queues a history backfill |
 | GET | `/alerts`, POST `/alerts/{id}/read`, `/alerts/read-all` | in-app alerts |
 | GET/POST/DELETE | `/alerts/push/key`, `/alerts/push/subscribe` | Web Push (VAPID) |
-| POST/DELETE | `/alerts/telegram/start`, `/alerts/telegram/verify`, `/alerts/telegram` | Telegram linking: code sent to the chat |
+| POST | `/alerts/telegram/link-webapp` | Mini App: validated `initData` links (or signs in) with zero typing |
+| POST | `/alerts/telegram/link` | deep link `t.me/<bot>?start=<token>` + 6-digit code (single use, 10 min) |
+| POST/DELETE | `/alerts/telegram/verify`, `/alerts/telegram` | code the bot sent on `/start`; unlink |
+| POST | `/telegram/webhook/{secret}` | bot updates (`/start /portfolio /safe /copy /alerts /stop /help`) |
 | GET | `/health/sources?fresh=1` | status + latency of postgres, redis, every RPC, explorer, DexScreener, GeckoTerminal |
 
 ## Worker jobs
@@ -68,7 +71,7 @@ Scans run in a thread with a timeout, guarded by a Redis lock per token (202 whi
 | `discover_pools` | 5 min | V4 PoolManager `Initialize` logs from a Redis cursor -> new `tokens` (+ scan queued) |
 | `collect` (copy) | 2 min | followed wallets' swaps in any token since the cursor; ETH leg from receipts; follower alerts |
 | `drain_backfill` | 20 s | first-follow history: explorer token-transfers, RPC log scan if the explorer is down |
-| `rank_wallets` | 60 min | realised PnL x hit rate over the newest pools -> `smart_wallets` |
+| `rank_wallets` | 60 min | realised **USD** PnL x hit rate over the newest pools -> `smart_wallets` (quote legs valued via `QUOTE_TOKENS`) |
 | `warmup` | 2 min | re-scan the most requested tokens before their cached verdict expires |
 | `deliver` | 30 s | Telegram + Web Push, `ALERTS_PER_HOUR` per user; stores `tg_message_id` |
 | `price_moves` | 10 min | holders alerted on a >= `PRICE_MOVE_PCT` move |
@@ -78,8 +81,9 @@ Scans run in a thread with a timeout, guarded by a Redis lock per token (202 whi
 
 ```bash
 cd /root/chainfolio/backend
-python -m scripts.gen_vapid                       # paste into .env with TELEGRAM_BOT_TOKEN/USERNAME
+python -m scripts.gen_vapid                       # paste into .env with TELEGRAM_BOT_TOKEN/USERNAME/WEBHOOK_SECRET
 docker builder prune -af && docker compose up -d --build migrate api worker web
+docker compose exec api python -m scripts.telegram_setup && docker compose exec api python -m scripts.telegram_setup --info
 docker compose logs worker --tail=60 | grep -E "pools_discovered|wallets_ranked|copy_collected|copy_backfilled|alerts_delivered"
 curl -s localhost:8000/health/sources?fresh=1 | python3 -m json.tool
 TOKEN=...   # from a SIWE login in the app (localStorage cf_token)

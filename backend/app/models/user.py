@@ -12,7 +12,8 @@ class User(IdMixin, TimestampMixin, Base):
     email: Mapped[str | None] = mapped_column(String(320), unique=True, index=True)
     currency: Mapped[str] = mapped_column(String(8), default="USD")
     push_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    telegram_chat_id: Mapped[str | None] = mapped_column(String(64))
+    telegram_chat_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    telegram_alerts: Mapped[bool] = mapped_column(Boolean, default=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     wallets: Mapped[list["Wallet"]] = relationship(back_populates="user", lazy="selectin")

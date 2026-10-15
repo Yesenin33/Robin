@@ -58,7 +58,9 @@ export const api = {
   pushKey: () => get<{ public_key: string }>('/alerts/push/key'),
   pushSubscribe: (sub: PushSubscriptionJSON) => post('/alerts/push/subscribe', sub),
   pushUnsubscribe: () => req('/alerts/push/subscribe', { method: 'DELETE' }),
-  telegramStart: (chat_id: string) => post('/alerts/telegram/start', { chat_id }),
+  telegramLink: () => post<{ url: string; code: string; expires_in: number }>('/alerts/telegram/link'),
+  telegramLinkWebApp: (init_data: string) =>
+    post<{ linked: boolean; chat: string; can_message: boolean; access_token: string | null }>('/alerts/telegram/link-webapp', { init_data }),
   telegramVerify: (code: string) => post<Channels>('/alerts/telegram/verify', { code }),
   telegramUnlink: () => req('/alerts/telegram', { method: 'DELETE' }),
   checkout: () => post<{ url: string }>('/billing/checkout'),

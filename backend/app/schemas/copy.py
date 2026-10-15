@@ -32,7 +32,7 @@ class CopyTargetOut(BaseModel):
 
 class SuggestedOut(BaseModel):
     address: str
-    realised_pnl_eth: float
+    realised_pnl_usd: float
     wins: int
     losses: int
     tokens: int

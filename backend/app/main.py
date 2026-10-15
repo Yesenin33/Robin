@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import alerts, auth, copy, health, portfolio, safety
+from app.api import alerts, auth, copy, health, portfolio, safety, telegram
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 
@@ -52,6 +52,7 @@ app.include_router(safety.router)
 app.include_router(copy.router)
 app.include_router(alerts.router)
 app.include_router(health.router)
+app.include_router(telegram.router)
 
 
 @app.get("/health", tags=["meta"])

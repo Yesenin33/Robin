@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { api } from '../api/client'
@@ -15,9 +15,19 @@ export function Profile() {
   const [upgrading, setUpgrading] = useState(false)
   const { state: ch, reload: reloadChannels } = useAsync(() => api.alertChannels(), [])
   const { state: alerts, reload: reloadAlerts } = useAsync(() => api.alerts(), [])
-  const [tgStep, setTgStep] = useState<'idle' | 'chat' | 'code'>('idle')
+  const [tgLink, setTgLink] = useState<{ url: string; code: string } | null>(null)
   const [tgInput, setTgInput] = useState('')
   const channels = ch.status === 'ready' ? ch.data : { push: false, telegram: false, telegram_bot: null }
+
+  // while the "Open @bot" card is up, watch for the bot confirming the link
+  useEffect(() => {
+    if (!tgLink) return
+    const t = setInterval(() => { void reloadChannels(true) }, 3000)
+    return () => clearInterval(t)
+  }, [tgLink, reloadChannels])
+  useEffect(() => {
+    if (tgLink && channels.telegram) { setTgLink(null); toast('Telegram alerts: connected') }
+  }, [tgLink, channels.telegram])
 
   const flipPush = async () => {
     try {
@@ -31,20 +41,20 @@ export function Profile() {
 
   const flipTelegram = async () => {
     if (channels.telegram) { await api.telegramUnlink(); await reloadChannels(true); return }
-    setTgStep(tgStep === 'idle' ? 'chat' : 'idle')
+    if (tgLink) { setTgLink(null); return }
+    try {
+      setTgLink(await api.telegramLink())
+    } catch (e: any) {
+      toast(e?.status === 503 ? 'Telegram alerts are not set up yet' : "Couldn't start Telegram linking")
+    }
   }
 
-  const submitTelegram = async () => {
+  const submitBotCode = async () => {
     try {
-      if (tgStep === 'chat') {
-        await api.telegramStart(tgInput.trim())
-        setTgStep('code'); setTgInput(''); toast('We sent a code to your Telegram')
-      } else {
-        await api.telegramVerify(tgInput.trim())
-        setTgStep('idle'); setTgInput(''); await reloadChannels(true); toast('Telegram alerts are on')
-      }
-    } catch (e: any) {
-      toast(e?.message ?? "Couldn't connect Telegram")
+      await api.telegramVerify(tgInput.trim())
+      setTgInput(''); setTgLink(null); await reloadChannels(true); toast('Telegram alerts: connected')
+    } catch {
+      toast('That code is wrong or expired')
     }
   }
 
@@ -68,7 +78,8 @@ export function Profile() {
   const account = user?.email ?? (user?.wallets[0] ? shortAddr(user.wallets[0].address) : '')
   const toggles = [
     { label: 'Phone alerts', sub: 'Web Push · risky moves in your holdings', on: channels.push, flip: flipPush },
-    { label: 'Telegram alerts', sub: 'Get alerts in your Telegram chat', on: channels.telegram, flip: flipTelegram },
+    { label: 'Telegram alerts', sub: channels.telegram ? 'Connected — alerts arrive in Telegram' : 'Get alerts in your Telegram chat',
+      on: channels.telegram, flip: flipTelegram },
   ]
   const settings = [
     { k: 'Account', v: account },
@@ -112,20 +123,22 @@ export function Profile() {
         ))}
       </div>
 
-      {tgStep !== 'idle' && (
-        <form className="card" style={{ borderRadius: 22, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}
-          onSubmit={e => { e.preventDefault(); void submitTelegram() }}>
+      {tgLink && (
+        <div className="card" style={{ borderRadius: 22, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <a className="btn btn-primary" href={tgLink.url} target="_blank" rel="noreferrer"
+            style={{ height: 50, fontSize: 15, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
+            Open @{channels.telegram_bot ?? 'chainfolio_bot'}
+          </a>
           <div style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.45 }}>
-            {tgStep === 'chat'
-              ? <>Open {channels.telegram_bot ? <a href={`https://t.me/${channels.telegram_bot}`} target="_blank" rel="noreferrer">@{channels.telegram_bot}</a> : 'our bot'} in Telegram, press Start, then enter your chat ID.</>
-              : 'Enter the 6-digit code we sent to your Telegram.'}
+            Tap the button and press Start — you're connected. On another device? Send the bot this code:{' '}
+            <b className="num" style={{ color: '#fff', letterSpacing: '.1em' }}>{tgLink.code}</b>
           </div>
-          <input className="input" style={{ height: 48 }} inputMode="numeric" value={tgInput} onChange={e => setTgInput(e.target.value)}
-            placeholder={tgStep === 'chat' ? 'Chat ID, e.g. 123456789' : '6-digit code'} />
-          <button className="btn btn-primary" style={{ height: 46, fontSize: 15, borderRadius: 14 }} type="submit">
-            {tgStep === 'chat' ? 'Send me a code' : 'Turn on Telegram alerts'}
-          </button>
-        </form>
+          <form style={{ display: 'flex', gap: 8 }} onSubmit={e => { e.preventDefault(); void submitBotCode() }}>
+            <input className="input" style={{ height: 44, fontSize: 14 }} inputMode="numeric" maxLength={6} value={tgInput}
+              onChange={e => setTgInput(e.target.value)} placeholder="Code from the bot" />
+            <button className="btn btn-ghost" style={{ height: 44, padding: '0 14px', fontSize: 14 }} type="submit">Connect</button>
+          </form>
+        </div>
       )}
 
       {alerts.status === 'ready' && alerts.data.items.length > 0 && (

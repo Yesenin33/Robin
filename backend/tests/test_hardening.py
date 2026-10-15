@@ -1,20 +1,106 @@
+import pytest
+
 from app.services.intelligence import rpc as irpc
 from app.services.intelligence.http import HttpError
 
 
-def test_rpc_fails_over_to_next_endpoint(monkeypatch):
-    seen = []
+OFFICIAL = "https://rpc.mainnet.chain.robinhood.com"
+DRPC = "https://robinhood.drpc.org"
+ALCHEMY = "https://robinhood-mainnet.g.alchemy.com/v2/KEY"
+TIER_ERR = {"code": -32600, "message": "Under the Free tier plan, you can make eth_getLogs requests with up to a 10 block range"}
 
-    def post(url, payload):
-        seen.append(url)
-        if "primary" in url:
-            raise HttpError("503")
-        return [{"jsonrpc": "2.0", "id": payload[0]["id"], "result": "0x10"}]
 
-    monkeypatch.setattr(irpc, "post_json", post)
-    r = irpc.Rpc("https://primary.example, https://backup.example")
-    assert r.block_number() == 16 and seen == ["https://primary.example", "https://backup.example"]
-    assert r.block_number() == 16 and seen[-1] == "https://backup.example"  # promoted, primary not retried first
+class Poster:
+    """Scripted HTTP layer: per-host list of (status, body-or-callable) answers, last one repeats."""
+
+    def __init__(self, script):
+        self.script, self.sent = script, []
+
+    def __call__(self, url, payload, timeout):
+        host = url.split("/")[2]
+        self.sent.append((host, payload[0]["method"]))
+        answers = self.script[host]
+        status, body = answers.pop(0) if len(answers) > 1 else answers[0]
+        if isinstance(body, Exception):
+            raise body
+        return status, body(payload) if callable(body) else body
+
+
+def ok(result):
+    return lambda payload: [{"jsonrpc": "2.0", "id": c["id"], "result": result} for c in payload]
+
+
+def logs_payload(span):
+    return [{"jsonrpc": "2.0", "id": 1, "method": "eth_getLogs",
+             "params": [{"fromBlock": hex(100), "toBlock": hex(100 + span - 1)}]}]
+
+
+@pytest.fixture(autouse=True)
+def _no_sleep(monkeypatch):
+    monkeypatch.setattr(irpc.time, "sleep", lambda s: None)
+
+
+def test_getlogs_never_sent_to_capped_endpoint_and_alchemy_not_promoted():
+    p = Poster({"robinhood-mainnet.g.alchemy.com": [(200, ok("0x10"))], "rpc.mainnet.chain.robinhood.com": [(200, ok([]))]})
+    r = irpc.Rpc(f"{ALCHEMY},{OFFICIAL}", poster=p)
+    assert r.block_number() == 16  # Alchemy may serve cheap calls...
+    assert r.call("eth_getLogs", [{"fromBlock": hex(0), "toBlock": hex(9_998)}]) == []
+    # ...but never a 9 999-block getLogs: it went straight to the official node, which is now first
+    assert p.sent == [("robinhood-mainnet.g.alchemy.com", "eth_blockNumber"), ("rpc.mainnet.chain.robinhood.com", "eth_getLogs")]
+    assert r.urls[0] == OFFICIAL
+
+
+def test_json_rpc_error_body_fails_over_and_is_not_promoted():
+    p = Poster({"robinhood.drpc.org": [(200, {"jsonrpc": "2.0", "id": 1, "error": TIER_ERR})],
+                "rpc.mainnet.chain.robinhood.com": [(200, ok("0x5"))]})
+    r = irpc.Rpc(f"{DRPC},{OFFICIAL}", poster=p)
+    assert r.block_number() == 5 and r.urls == [OFFICIAL, DRPC]
+
+
+def test_batch_array_with_node_error_fails_over():
+    def batch_err(payload):
+        return [{"jsonrpc": "2.0", "id": payload[0]["id"], "error": {"code": -32005, "message": "limit exceeded"}}]
+
+    p = Poster({"robinhood.drpc.org": [(200, batch_err)], "rpc.mainnet.chain.robinhood.com": [(200, ok("0x7"))]})
+    assert irpc.Rpc(f"{DRPC},{OFFICIAL}", poster=p).batch([("eth_blockNumber", [])]) == ["0x7"]
+
+
+def test_execution_revert_is_an_answer_not_a_node_failure():
+    def revert(payload):
+        return [{"jsonrpc": "2.0", "id": payload[0]["id"], "error": {"code": 3, "message": "execution reverted"}}]
+
+    p = Poster({"rpc.mainnet.chain.robinhood.com": [(200, revert)], "robinhood.drpc.org": [(200, ok("0x1"))]})
+    r = irpc.Rpc(f"{OFFICIAL},{DRPC}", poster=p)
+    assert r.eth_call("0x" + "11" * 20, "0x06fdde03") is None
+    assert p.sent == [("rpc.mainnet.chain.robinhood.com", "eth_call")]  # no pointless failover
+
+
+def test_retries_5xx_and_429_then_succeeds_on_same_endpoint():
+    p = Poster({"robinhood.drpc.org": [(500, None), (429, None), (200, ok("0x9"))]})
+    assert irpc.Rpc(DRPC, poster=p).block_number() == 9  # single URL still works
+    assert len(p.sent) == 3
+
+
+def test_persistent_500_moves_to_next_endpoint():
+    p = Poster({"robinhood.drpc.org": [(500, None)], "rpc.mainnet.chain.robinhood.com": [(200, ok("0x2"))]})
+    r = irpc.Rpc(f"{DRPC},{OFFICIAL}", poster=p)
+    assert r.block_number() == 2
+    assert [h for h, _ in p.sent].count("robinhood.drpc.org") == 3  # 1 try + 2 retries
+
+
+def test_all_endpoints_failing_reports_each():
+    p = Poster({"robinhood.drpc.org": [(500, None)], "robinhood-mainnet.g.alchemy.com": [(200, ok([]))]})
+    r = irpc.Rpc(f"{DRPC},{ALCHEMY}", poster=p)
+    with pytest.raises(irpc.RpcError) as e:
+        r._transport(logs_payload(9_999))
+    assert "HTTP 500" in str(e.value) and "skipped (log range 9999 > cap 10)" in str(e.value)
+
+
+def test_debug_log_names_the_getlogs_endpoint(caplog):
+    caplog.set_level("DEBUG", logger="intelligence.rpc")
+    p = Poster({"rpc.mainnet.chain.robinhood.com": [(200, ok([]))]})
+    irpc.Rpc(OFFICIAL, poster=p).call("eth_getLogs", [{"fromBlock": "0x0", "toBlock": "0x9"}])
+    assert "eth_getLogs served by rpc.mainnet.chain.robinhood.com (range 10)" in caplog.text
 
 
 async def test_health_sources_reports_each_source(client, monkeypatch):

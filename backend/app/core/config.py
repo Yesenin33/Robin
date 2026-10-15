@@ -67,7 +67,11 @@ class Settings(BaseSettings):
     position_snapshot_min: int = 5
 
     # Indexer / copy feed
-    weth_address: str = ""  # WETH on Robinhood Chain, if pools use it instead of native ETH
+    weth_address: str = "0x0bd7d308f8e1639fab988df18a8011f41eacad73"  # WETH on Robinhood Chain
+    # Quote currencies used to value trades: "address=USD" (pegged $1) or "address=ETH" (ETH price).
+    # Native ETH and WETH_ADDRESS are always ETH. Trades in any other quote are not valued/ranked.
+    quote_tokens: str = ("0x5fc5360d0400a0fd4f2af552add042d716f1d168=USD,"  # USDG "Global Dollar"
+                         "0x0bd7d308f8e1639fab988df18a8011f41eacad73=ETH")  # WETH
     discovery_lookback_blocks: int = 2_000_000  # first run: how far back to look for V4 pools
     copy_lookback_blocks: int = 20_000  # first run of the live copy collector
     backfill_blocks: int = 1_000_000  # RPC backfill depth on first follow when the explorer is down
@@ -82,6 +86,8 @@ class Settings(BaseSettings):
     price_move_pct: float = 20.0
     telegram_bot_token: str = ""
     telegram_bot_username: str = ""
+    # Path + header secret for the bot webhook ([A-Za-z0-9_-], 32+ chars). Empty = webhook disabled.
+    telegram_webhook_secret: str = ""
     vapid_public_key: str = ""
     vapid_private_key: str = ""
     vapid_subject: str = "mailto:support@chainfolio.app"

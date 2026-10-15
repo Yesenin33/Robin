@@ -16,12 +16,11 @@ from app.core.db import SessionLocal
 from app.core.logging import get_logger
 from app.jobs.scan_job import enqueue_scan
 from app.models import CopyTarget
-from app.services import alert_service, chain_index, copy_service
+from app.services import alert_service, chain_index, copy_service, pricing
 from app.services.chain import make_rpc
 from app.services.chain_index import POOL_MANAGER, Trade
 from app.services.intelligence.config import get_chain
 from app.services.intelligence.http import HttpError, get_json
-from app.services.market import MarketClient
 
 log = get_logger(__name__)
 CURSOR = "copy:cursor"
@@ -31,11 +30,10 @@ BACKFILL_QUEUE = "copy:backfill"
 async def _store(redis: Redis, rpc, trades: list[Trade], alert: bool) -> int:
     if not trades:
         return 0
-    eth_usd = await MarketClient(redis).native_price_usd(get_settings().native_symbol)
     async with SessionLocal() as db:
         tokens, new = await copy_service.ensure_tokens(db, rpc, {t.token for t in trades})
         await db.commit()
-        events = await copy_service.store_trades(db, trades, tokens, eth_usd)
+        events = await copy_service.store_trades(db, trades, tokens)
         if alert and events:
             await alert_service.on_copy_events(db, redis, events)
     for addr in new:
@@ -59,7 +57,7 @@ async def collect(redis: Redis, rpc=None) -> int:
         for i in range(0, len(wallets), 50):  # keep the topic OR-list small
             trades += await asyncio.to_thread(chain_index.wallet_trades, rpc, wallets[i:i + 50], start, head,
                                               s.log_chunk_blocks)
-        await asyncio.to_thread(chain_index.enrich, rpc, trades, s.weth_address or None)
+        await pricing.enrich_and_value(SessionLocal, redis, rpc, trades)
     except Exception as e:  # noqa: BLE001 — next run retries from the same cursor
         log.error("copy_collect_failed", error=str(e))
         return 0
@@ -121,8 +119,8 @@ async def backfill(redis: Redis, wallet: str, rpc=None, fetch=None) -> int:
         trades = await asyncio.to_thread(chain_index.wallet_trades, rpc, [wallet], max(0, head - s.backfill_blocks),
                                          head, s.log_chunk_blocks)
     try:
-        await asyncio.to_thread(chain_index.enrich, rpc, trades, s.weth_address or None)
-    except Exception as e:  # noqa: BLE001 — rows are still useful without ETH legs
+        await pricing.enrich_and_value(SessionLocal, redis, rpc, trades)
+    except Exception as e:  # noqa: BLE001 — rows are still useful without a USD value
         log.warning("backfill_enrich_failed", wallet=wallet, error=str(e))
     n = await _store(redis, rpc, trades, alert=False)  # history isn't news: no alerts
     log.info("copy_backfilled", wallet=wallet, source=source, trades=len(trades), events=n)

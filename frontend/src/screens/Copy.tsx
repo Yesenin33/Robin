@@ -82,7 +82,7 @@ function SuggestedCard({ s, onFollow }: { s: Suggested; onFollow: () => void }) 
         <Avatar seed={s.address} letter={s.address.slice(2, 3)} size={42} />
         <div style={{ flex: 1 }}>
           <div className="num" style={{ fontWeight: 700, fontSize: 15 }}>{shortAddr(s.address)}</div>
-          <div className="up" style={{ fontSize: 13, marginTop: 2, fontWeight: 700 }}>{s.realised_pnl_eth >= 0 ? '+' : ''}{s.realised_pnl_eth.toFixed(2)} ETH realised</div>
+          <div className="up" style={{ fontSize: 13, marginTop: 2, fontWeight: 700 }}>{s.realised_pnl_usd >= 0 ? '+' : '-'}{usd(Math.abs(s.realised_pnl_usd)).replace(/\.\d\d$/, '')} realised</div>
         </div>
         <Tag t={s.risk_tag} />
       </div>

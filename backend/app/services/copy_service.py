@@ -69,8 +69,7 @@ async def ensure_tokens(db: AsyncSession, rpc: Rpc, addresses: set[str]) -> tupl
     return have, new
 
 
-async def store_trades(db: AsyncSession, trades: list[Trade], tokens: dict[str, Token],
-                       eth_usd: float | None) -> list[CopyEvent]:
+async def store_trades(db: AsyncSession, trades: list[Trade], tokens: dict[str, Token]) -> list[CopyEvent]:
     """Insert CopyEvents (dedup on tx+token+wallet+side). Returns the newly inserted rows."""
     inserted: list[CopyEvent] = []
     for t in trades:
@@ -78,12 +77,13 @@ async def store_trades(db: AsyncSession, trades: list[Trade], tokens: dict[str, 
         decimals = (tok.decimals if tok else 18) or 18
         amount = t.token_raw / 10**decimals
         eth = t.eth_wei / 1e18 if t.eth_wei is not None else None
-        usd = (eth * eth_usd if eth is not None and eth_usd else
-               amount * float(tok.price_usd) if tok is not None and tok.price_usd is not None else None)
+        usd = t.usd if t.usd is not None else (
+            amount * float(tok.price_usd) if tok is not None and tok.price_usd is not None else None)
         ev = CopyEvent(
             address=t.wallet, tx_hash=t.tx, side=t.side, token_address=t.token, block_number=t.block,
             ts=datetime.fromtimestamp(t.ts, timezone.utc) if t.ts else datetime.now(timezone.utc),
             token_amount=amount, eth_amount=eth, amount_usd=round(usd, 2) if usd is not None else None,
+            quote_token=t.quote, quote_amount=t.quote_raw,
             meta={"symbol": tok.symbol if tok else None},
         )
         try:

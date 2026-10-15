@@ -13,8 +13,8 @@ class SmartWallet(IdMixin, Base):
 
     address: Mapped[str] = mapped_column(String(78), unique=True, index=True)
     score: Mapped[float] = mapped_column(Numeric(24, 8), default=0, index=True)
-    realised_pnl_eth: Mapped[float] = mapped_column(Numeric(38, 18), default=0)
-    invested_eth: Mapped[float] = mapped_column(Numeric(38, 18), default=0)
+    realised_pnl_usd: Mapped[float] = mapped_column(Numeric(38, 18), default=0)
+    invested_usd: Mapped[float] = mapped_column(Numeric(38, 18), default=0)
     trades: Mapped[int] = mapped_column(Integer, default=0)
     wins: Mapped[int] = mapped_column(Integer, default=0)
     losses: Mapped[int] = mapped_column(Integer, default=0)

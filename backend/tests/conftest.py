@@ -30,7 +30,8 @@ async def redis():
 # ---------- shared DB for jobs + API (jobs open their own sessions via SessionLocal) ----------
 
 SESSION_MODULES = ["app.core.db", "app.jobs.copy_job", "app.jobs.discovery_job", "app.jobs.rank_job",
-                   "app.jobs.alert_job", "app.jobs.scan_job", "app.jobs.snapshot_job", "app.api.health"]
+                   "app.jobs.alert_job", "app.jobs.scan_job", "app.jobs.snapshot_job", "app.api.health",
+                   "app.api.telegram"]
 
 
 @pytest.fixture

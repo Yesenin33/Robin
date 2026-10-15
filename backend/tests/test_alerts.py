@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from app.api.alerts import get_sender
 from app.core.config import get_settings
 from app.main import app
 from app.models import Alert, Position, PushSubscription, Token, User, Wallet
@@ -22,9 +21,14 @@ class FakeSender:
         self.push: list[dict] = []
         self.fail_push_gone = fail_push_gone
 
-    async def telegram(self, chat_id, text):
+    async def telegram(self, chat_id, text, reply_markup=None):
         self.tg.append((chat_id, text))
+        self.markups = getattr(self, "markups", []) + [reply_markup]
         return 1000 + len(self.tg)
+
+    async def bot_api(self, method, payload):
+        self.api = getattr(self, "api", []) + [(method, payload)]
+        return {"ok": True}, 200
 
     async def webpush(self, sub, data):
         if self.fail_push_gone:
@@ -121,19 +125,6 @@ async def test_alerts_api_list_and_read(client, signed_in, appdb):
     assert (await client.post(f"/alerts/{aid}/read", headers=headers)).status_code == 204
     assert (await client.get("/alerts", headers=headers)).json()["unread"] == 0
     assert (await client.post(f"/alerts/{aid + 1}/read", headers=headers)).status_code == 404  # someone else's
-
-
-async def test_telegram_link_by_code(client, signed_in, redis, channels):
-    headers, _, _ = signed_in
-    sender = FakeSender()
-    app.dependency_overrides[get_sender] = lambda: sender
-    r = await client.post("/alerts/telegram/start", json={"chat_id": "8122200450"}, headers=headers)
-    assert r.status_code == 202 and sender.tg[0][0] == "8122200450"
-    code = sender.tg[0][1].split("code: ")[1][:6]
-    bad = await client.post("/alerts/telegram/verify", json={"code": "000000" if code != "000000" else "111111"}, headers=headers)
-    assert bad.status_code == 400
-    ok = await client.post("/alerts/telegram/verify", json={"code": code}, headers=headers)
-    assert ok.status_code == 200 and ok.json()["telegram"] is True
 
 
 async def test_push_subscribe_and_key(client, signed_in, channels):

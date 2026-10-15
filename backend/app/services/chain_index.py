@@ -2,9 +2,11 @@
 
 Every V4 swap settles through the PoolManager, so for any ERC-20:
   buy  = Transfer(PoolManager -> wallet)     sell = Transfer(wallet -> PoolManager)
-The ETH side of a trade comes from the PoolManager `Swap` event in the same tx receipt: the side
-whose |amount| matches the token transfer is the token, the other side is the counter-currency.
-If no other ERC-20 moved through the PoolManager in that tx, the counter-currency was native ETH.
+The quote leg (what the trade was paid in) comes from the PoolManager `Swap` event in the receipt.
+The pool id in that event names both currencies (from `Initialize`), so the side that is not our
+token is the quote — USDG, WETH, native ETH or anything else. Unknown pools are resolved from their
+Initialize log; failing that, the quote is inferred from which other ERC-20 moved through the
+PoolManager in the same tx (none = native ETH). Valuing the quote in USD is pricing.py's job.
 """
 from dataclasses import dataclass
 
@@ -35,8 +37,11 @@ class Trade:
     tx: str
     block: int
     log_index: int
-    eth_wei: int | None = None  # None = counter-currency was not ETH / not resolvable
+    eth_wei: int | None = None  # quote amount when the quote is ETH (native or WETH)
     ts: int | None = None  # unix seconds
+    quote: str | None = None  # quote currency address (ZERO = native ETH); None = unresolved
+    quote_raw: int | None = None
+    usd: float | None = None  # trade value in USD (set by pricing.value_trades); None = can't value
 
 
 def _word(data: str, i: int) -> int:
@@ -114,42 +119,100 @@ def token_trades(rpc: Rpc, token: str, start: int, end: int, chunk: int, limit: 
     return trades[-limit:]
 
 
-def eth_leg(receipt: dict, trade: Trade, weth: str | None = None) -> int | None:
-    """ETH paid/received for this trade, from the PoolManager Swap event in the receipt."""
-    logs = receipt.get("logs") or []
-    other_erc20 = {
-        lg["address"].lower() for lg in logs
-        if (lg.get("topics") or [None])[0] == TRANSFER_TOPIC and lg["address"].lower() != trade.token
-        and len(lg["topics"]) == 3 and POOL_MANAGER in (topic_addr(lg["topics"][1]), topic_addr(lg["topics"][2]))
-    }
-    eth_is_native = not other_erc20
-    eth_is_weth = bool(weth) and other_erc20 == {weth.lower()}
-    if not (eth_is_native or eth_is_weth):
+def _swaps(receipt: dict) -> list[tuple[str, int, int]]:
+    out = []
+    for lg in receipt.get("logs") or []:
+        t = lg.get("topics") or []
+        if lg.get("address", "").lower() == POOL_MANAGER and t and t[0] == SWAP_TOPIC and len(t) > 1:
+            out.append((t[1].lower(), abs(_int128(_word(lg["data"], 0))), abs(_int128(_word(lg["data"], 1)))))
+    return out
+
+
+def _close(a: int, b: int) -> float | None:
+    if not a or not b:
         return None
-    best: tuple[float, int] | None = None
-    for lg in logs:
-        if lg.get("address", "").lower() != POOL_MANAGER or (lg.get("topics") or [None])[0] != SWAP_TOPIC:
+    d = abs(a - b) / max(a, b)
+    return d if d <= MATCH_TOLERANCE else None
+
+
+def quote_leg(receipt: dict, trade: Trade, pools: dict[str, tuple[str, str]]) -> tuple[str, int] | None:
+    """(quote currency, raw amount) paid/received for this trade, or None if it can't be resolved."""
+    best: tuple[float, str, int] | None = None
+    unknown: list[tuple[int, int]] = []
+    for pid, a0, a1 in _swaps(receipt):
+        pair = pools.get(pid)
+        if pair is None:
+            unknown.append((a0, a1))
             continue
-        a0, a1 = abs(_int128(_word(lg["data"], 0))), abs(_int128(_word(lg["data"], 1)))
-        for tok_side, eth_side in ((a1, a0), (a0, a1)):
-            if tok_side and trade.token_raw:
-                diff = abs(tok_side - trade.token_raw) / max(tok_side, trade.token_raw)
-                if diff <= MATCH_TOLERANCE and (best is None or diff < best[0]):
-                    best = (diff, eth_side)
-    return best[1] if best else None
+        c0, c1 = pair
+        for cur, tok_amt, other, q_amt in ((c0, a0, c1, a1), (c1, a1, c0, a0)):
+            if cur == trade.token and (d := _close(tok_amt, trade.token_raw)) is not None:
+                if best is None or d < best[0]:
+                    best = (d, other, q_amt)
+    if best:
+        return best[1], best[2]
+    # pool not known: infer the quote from the other ERC-20s that crossed the PoolManager
+    moved: dict[str, list[int]] = {}
+    for lg in receipt.get("logs") or []:
+        t = lg.get("topics") or []
+        if t and t[0] == TRANSFER_TOPIC and len(t) == 3 and lg["address"].lower() != trade.token \
+                and POOL_MANAGER in (topic_addr(t[1]), topic_addr(t[2])):
+            moved.setdefault(lg["address"].lower(), []).append(to_int(lg.get("data")))
+    for a0, a1 in unknown:
+        for tok_amt, q_amt in ((a1, a0), (a0, a1)):
+            if _close(tok_amt, trade.token_raw) is None:
+                continue
+            if not moved:
+                return ZERO, q_amt  # nothing else moved: paid in native ETH
+            for cur, amounts in moved.items():
+                if any(_close(v, q_amt) is not None for v in amounts):
+                    return cur, q_amt
+    return None
 
 
-def enrich(rpc: Rpc, trades: list[Trade], weth: str | None = None) -> list[Trade]:
-    """Fill eth_wei (from receipts) and ts (from block headers) in batched RPC calls."""
+def resolve_pools(rpc: Rpc, pool_ids: set[str], pools: dict[str, tuple[str, str]]) -> dict[str, tuple[str, str]]:
+    """Fill `pools` for unknown ids from their Initialize logs (one wide getLogs per 50 ids).
+
+    Returns only the newly resolved entries (caller persists them)."""
+    missing = sorted(pid for pid in pool_ids if pid not in pools)
+    found: dict[str, tuple[str, str]] = {}
+    if not missing:
+        return found
+    head = rpc.block_number()
+    for i in range(0, len(missing), 50):
+        try:
+            logs = rpc.call("eth_getLogs", [{"address": POOL_MANAGER, "topics": [INITIALIZE_TOPIC, missing[i:i + 50]],
+                                             "fromBlock": "0x0", "toBlock": hex(head)}]) or []
+        except RpcError:
+            continue  # quote falls back to the transfer heuristic
+        for lg in logs:
+            if len(lg.get("topics") or []) == 4:
+                p = parse_initialize(lg)
+                found[p.pool_id] = (p.currency0, p.currency1)
+    pools.update(found)
+    return found
+
+
+def enrich(rpc: Rpc, trades: list[Trade], weth: str | None = None,
+           pools: dict[str, tuple[str, str]] | None = None) -> list[Trade]:
+    """Fill quote/quote_raw/eth_wei (receipts) and ts (block headers) in batched RPC calls.
+
+    `pools` (pool id -> currencies) is used and extended in place; unknown ids are resolved on-chain."""
     if not trades:
         return trades
+    pools = {} if pools is None else pools
+    weth = (weth or "").lower()
     txs = sorted({t.tx for t in trades})
     receipts = dict(zip(txs, rpc.batch([("eth_getTransactionReceipt", [h]) for h in txs])))
+    ids = {pid for rc in receipts.values() if rc for pid, _, _ in _swaps(rc)}
+    resolve_pools(rpc, ids, pools)
     blocks = sorted({t.block for t in trades if t.ts is None})  # explorer rows already carry a timestamp
     headers = dict(zip(blocks, rpc.batch([("eth_getBlockByNumber", [hex(b), False]) for b in blocks])))
     for t in trades:
-        if rc := receipts.get(t.tx):
-            t.eth_wei = eth_leg(rc, t, weth)
+        if (rc := receipts.get(t.tx)) and (leg := quote_leg(rc, t, pools)):
+            t.quote, t.quote_raw = leg
+            if t.quote in (ZERO, weth):
+                t.eth_wei = t.quote_raw
         if t.ts is None and (hd := headers.get(t.block)):
             t.ts = to_int(hd.get("timestamp"))
     return trades

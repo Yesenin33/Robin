@@ -30,6 +30,8 @@ class CopyEvent(IdMixin, Base):
     amount_usd: Mapped[float | None] = mapped_column(Numeric(24, 2))
     token_amount: Mapped[float | None] = mapped_column(Numeric(48, 18))
     eth_amount: Mapped[float | None] = mapped_column(Numeric(38, 18))
+    quote_token: Mapped[str | None] = mapped_column(String(78))  # what the trade was paid in (ZERO = ETH)
+    quote_amount: Mapped[float | None] = mapped_column(Numeric(48, 18))
     block_number: Mapped[int | None] = mapped_column(BigId)
     reason: Mapped[str | None] = mapped_column(String(512))
     risk_tag: Mapped[str | None] = mapped_column(String(16))  # low | medium | high

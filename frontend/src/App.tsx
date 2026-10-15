@@ -1,9 +1,11 @@
-import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
 import { Background } from './components/Background'
 import { TabBar } from './components/TabBar'
-import { Toaster } from './components/ui'
+import { toast, Toaster } from './components/ui'
 import { useAuth } from './lib/auth'
+import { linkTelegramWebApp } from './lib/telegram'
 import { AuthCallback } from './screens/AuthCallback'
 import { Copy } from './screens/Copy'
 import { Landing } from './screens/Landing'
@@ -25,6 +27,26 @@ function AppLayout() {
       <TabBar />
     </>
   )
+}
+
+/** Opened from the bot's "Open Chainfolio" button: link Telegram (and sign in if needed), no typing. */
+function TelegramBridge() {
+  const { ready, refresh } = useAuth()
+  const nav = useNavigate()
+  const done = useRef(false)
+  useEffect(() => {
+    if (!ready || done.current) return
+    done.current = true
+    linkTelegramWebApp()
+      .then(async r => {
+        if (!r) return
+        await refresh()
+        toast('Telegram alerts: connected')
+        nav('/app/profile', { replace: true })
+      })
+      .catch(() => toast("Couldn't connect Telegram — try again from Profile"))
+  }, [ready, refresh, nav])
+  return null
 }
 
 export function App() {
@@ -50,6 +72,7 @@ export function App() {
         </main>
       </div>
       <Toaster />
+      <TelegramBridge />
     </>
   )
 }

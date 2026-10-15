@@ -22,31 +22,44 @@ class V4Chain:
         self.receipts: dict[str, list[dict]] = {}
         self.meta: dict[str, tuple[str, int]] = {}  # token -> (symbol, decimals)
         self.calls: list[str] = []
+        self.pools: dict[str, tuple[str, str]] = {}
         self._n = 0
 
     def token(self, addr: str, symbol: str, decimals: int = 18) -> str:
         self.meta[addr] = (symbol, decimals)
         return addr
 
-    def pool(self, block: int, token: str, pool_id: str) -> None:
+    def pool(self, block: int, token: str, pool_id: str, quote: str = ZERO) -> None:
+        """V4 Initialize: currencies sorted by address (native ETH = ZERO is always currency0)."""
+        c0, c1 = sorted([quote, token], key=lambda a: int(a, 16))
+        self.pools[pool_id] = (c0, c1)
         self.logs.append({"address": POOL_MANAGER, "blockNumber": hex(block), "transactionHash": f"0xinit{block}",
-                          "logIndex": "0x0", "topics": [INITIALIZE_TOPIC, pool_id, "0x" + pad_addr(ZERO),
-                                                        "0x" + pad_addr(token)], "data": "0x" + word(3000) * 5})
+                          "logIndex": "0x0", "topics": [INITIALIZE_TOPIC, pool_id, "0x" + pad_addr(c0),
+                                                        "0x" + pad_addr(c1)], "data": "0x" + word(3000) * 5})
 
-    def swap(self, block: int, wallet: str, token: str, side: str, tokens: int, eth: float, pool_id: str) -> str:
+    def swap(self, block: int, wallet: str, token: str, side: str, tokens: int, paid: float, pool_id: str) -> str:
+        """`paid` is in quote units (ETH, USDG, ...) of the pool's quote currency."""
         self._n += 1
         tx = "0x" + f"{self._n:064x}"
+        c0, c1 = self.pools[pool_id]
+        quote = c0 if c1 == token else c1
+        q_raw = int(round(paid * 10 ** (18 if quote == ZERO else self.meta[quote][1])))
         frm, to = (POOL_MANAGER, wallet) if side == "buy" else (wallet, POOL_MANAGER)
         transfer = {"address": token, "blockNumber": hex(block), "transactionHash": tx, "logIndex": "0x1",
                     "topics": [TRANSFER_TOPIC, "0x" + pad_addr(frm), "0x" + pad_addr(to)], "data": "0x" + word(tokens)}
-        wei = int(eth * E18)
         # BalanceDelta from the swapper's side: negative = paid
-        a0, a1 = (-wei, tokens) if side == "buy" else (wei, -tokens)
+        tok_d, q_d = (tokens, -q_raw) if side == "buy" else (-tokens, q_raw)
+        a0, a1 = (tok_d, q_d) if c0 == token else (q_d, tok_d)
         swap = {"address": POOL_MANAGER, "blockNumber": hex(block), "transactionHash": tx, "logIndex": "0x0",
                 "topics": [SWAP_TOPIC, pool_id, "0x" + pad_addr("0x" + "66" * 20)],
                 "data": "0x" + word(a0) + word(a1) + word(1) * 4}
+        receipt = [swap, transfer]
+        if quote != ZERO:  # an ERC-20 quote settles through the PoolManager too
+            qf, qt = (wallet, POOL_MANAGER) if side == "buy" else (POOL_MANAGER, wallet)
+            receipt.append({"address": quote, "blockNumber": hex(block), "transactionHash": tx, "logIndex": "0x2",
+                            "topics": [TRANSFER_TOPIC, "0x" + pad_addr(qf), "0x" + pad_addr(qt)], "data": "0x" + word(q_raw)})
         self.logs.append(transfer)
-        self.receipts[tx] = [swap, transfer]
+        self.receipts[tx] = receipt
         return tx
 
     # --- JSON-RPC ---

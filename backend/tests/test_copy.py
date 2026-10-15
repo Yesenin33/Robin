@@ -101,8 +101,13 @@ async def test_unknown_token_is_created_and_reason_says_unchecked(client, signed
     await follow(client, headers)
     await redis.set(copy_job.CURSOR, 4500)
     new = chain.token("0x" + "77" * 20, "NEWT", decimals=9)
-    chain.swap(4600, WHALE, new, "buy", 5 * 10**9, 0.02, "0x" + "ee" * 32)
+    usdg = chain.token("0x5fc5360d0400a0fd4f2af552add042d716f1d168", "USDG", decimals=6)
+    chain.pool(4100, new, "0x" + "ee" * 32, quote=usdg)  # pool never seen by discovery: resolved on the fly
+    chain.swap(4600, WHALE, new, "buy", 5 * 10**9, 60.0, "0x" + "ee" * 32)  # paid 60 USDG
     assert await copy_job.collect(redis) == 1
+    async with appdb() as db:
+        ev = (await db.execute(select(CopyEvent))).scalar_one()
+    assert (ev.quote_token, float(ev.amount_usd), ev.eth_amount) == (usdg, 60.0, None)
     assert new in await redis.lrange("scan:queue", 0, -1)
     item = (await client.get("/copy/feed", headers=headers)).json()[0]
     assert item["token_symbol"] == "NEWT" and item["risk_tag"] == "medium"
@@ -122,9 +127,9 @@ async def test_suggested_wallets_come_from_ranked_trades(client, signed_in, appd
     finally:
         get_settings().suggested_min_closed = 2
     s = (await client.get("/copy/suggested", headers=headers)).json()
-    assert len(s) == 1 and s[0]["address"] == WHALE and s[0]["realised_pnl_eth"] == pytest.approx(2.5)
+    assert len(s) == 1 and s[0]["address"] == WHALE and s[0]["realised_pnl_usd"] == pytest.approx(7500)  # ETH @ $3,000
     assert s[0]["early_buys"] == 1 and s[0]["following"] is False and s[0]["risk_tag"] == "medium"
-    assert s[0]["reason"].startswith("Made +2.50 ETH in realised profit; 1 of 1 closed trades were wins")
+    assert s[0]["reason"].startswith("Made +$7,500 in realised profit; 1 of 1 closed trades were wins")
 
 
 async def test_no_followed_wallets_means_no_rpc_work(appdb, redis, chain):

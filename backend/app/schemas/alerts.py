@@ -29,8 +29,21 @@ class PushSubIn(BaseModel):
     keys: dict[str, str]  # {"p256dh": ..., "auth": ...}
 
 
-class TelegramStartIn(BaseModel):
-    chat_id: str = Field(pattern=r"^-?\d{3,20}$")
+class TelegramLinkOut(BaseModel):
+    url: str  # https://t.me/<bot>?start=<one-time token>
+    code: str  # same link as a 6-digit code to type into the bot
+    expires_in: int
+
+
+class WebAppLinkIn(BaseModel):
+    init_data: str = Field(min_length=10, max_length=4096)
+
+
+class WebAppLinkOut(BaseModel):
+    linked: bool
+    chat: str  # "@username" or first name, never the numeric id
+    can_message: bool
+    access_token: str | None = None  # set when the Mini App signed the user in
 
 
 class TelegramVerifyIn(BaseModel):
@@ -40,4 +53,5 @@ class TelegramVerifyIn(BaseModel):
 class ChannelsOut(BaseModel):
     push: bool
     telegram: bool
+    telegram_alerts: bool = True
     telegram_bot: str | None = None

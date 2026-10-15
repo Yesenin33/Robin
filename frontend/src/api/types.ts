@@ -61,7 +61,7 @@ export interface CopyItem {
 
 export interface Suggested {
   address: string
-  realised_pnl_eth: number
+  realised_pnl_usd: number
   wins: number
   losses: number
   tokens: number
@@ -81,4 +81,4 @@ export interface AlertItem {
   read: boolean
 }
 export interface Alerts { unread: number; items: AlertItem[] }
-export interface Channels { push: boolean; telegram: boolean; telegram_bot: string | null }
+export interface Channels { push: boolean; telegram: boolean; telegram_alerts?: boolean; telegram_bot: string | null }

@@ -53,7 +53,7 @@ async def suggested(
         bad = sum(v == "DANGER" for v in verdicts) / len(verdicts) if verdicts else 0
         risky = sum(v != "CLEAN" for v in verdicts) / len(verdicts) if verdicts else 0.5
         tag = "high" if bad >= 0.3 else "medium" if risky >= 0.3 else "low"
-        g = {"realised_pnl_eth": float(w.realised_pnl_eth), "wins": w.wins, "losses": w.losses,
+        g = {"realised_pnl_usd": float(w.realised_pnl_usd), "wins": w.wins, "losses": w.losses,
              "tokens": w.tokens, "early_buys": w.early_buys}
         out.append(SuggestedOut(address=w.address, **g, reason=smart_wallets.describe(g), risk_tag=tag,
                                 following=w.address in followed))
