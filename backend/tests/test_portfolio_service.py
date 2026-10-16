@@ -84,6 +84,26 @@ async def test_portfolio_holdings_and_24h(svc):
     assert hood.pnl_pct is None  # no snapshots yet
 
 
+async def test_order_is_what_the_row_is_worth(db, redis):
+    """The list was sorted by value_usd - the very number a not-counted row hides - so unverifiable junk
+    with a fantasy price floated above the rows the owner actually owns. He read that as "sorted wrong"."""
+    JUNK = "0x" + "ee" * 20
+    db.add_all([
+        Token(address=HOOD, symbol="HOOD-X", name="Hood Index", decimals=18, price_usd=1250, price_change_24h=8.4),
+        Token(address=JUNK, symbol="JUNK", name="Junk", decimals=18, price_usd=2000, liquidity_usd=10**9),
+    ])
+    await db.commit()
+    await check(db, 1, "CLEAN")  # ONLY the first token has a check; the other was never checked
+    svc = PortfolioService(db, redis, held_rpc({HOOD: 4 * 10**18, JUNK: 5 * 10**18}, []), FakeMarket())
+    p = await svc.get(OWNER)
+    # JUNK is worth 10 000 on paper against HOOD's 5 000 and still comes second: the biggest number on the
+    # screen is the one we can stand behind, and an unchecked row is not one we can.
+    assert [h.symbol for h in p.holdings] == ["HOOD-X", "JUNK"]
+    assert p.holdings[0].counted is True and p.holdings[1].counted is False
+    assert p.holdings[1].not_counted_reason == "Not checked yet"
+    assert p.total_usd == pytest.approx(5000)
+
+
 async def test_snapshot_then_pnl(svc, db):
     assert await svc.snapshot(OWNER) == 3
     tok = await db.get(Token, 1)
@@ -259,7 +279,9 @@ async def test_portfolio_asks_the_chain_once_instead_of_per_token(db, redis):
     await db.commit()
 
     p = await svc.get(OWNER)
-    assert [h.symbol for h in p.holdings] == ["HOOD-X", "ETH", "?"]  # PLUM isn't held; the unknown token still shows
+    # HOOD-X sorts last: it was never checked, so it cannot be vouched for, and unvouched rows sit below the
+    # ones we can stand behind (ETH is native and counted; the unreadable token shows with no invented value).
+    assert [h.symbol for h in p.holdings] == ["ETH", "?", "HOOD-X"]  # PLUM isn't held; the unknown token still shows
     assert seen.count("alchemy_getTokenBalances") == 1
     assert not any(h.value_usd for h in p.holdings if h.symbol == "?")  # ...with no invented value
 

@@ -108,7 +108,11 @@ class PortfolioService:
         if unverified:
             await self._queue_checks(unverified)
 
-        holdings.sort(key=lambda h: h.value_usd, reverse=True)
+        # The owner asked why this is not ordered "by balance": the sort key was value_usd, the very number
+        # a not-counted row hides, so unverifiable junk with a fantasy price floated to the top. Order by
+        # what the row is actually worth, and put the ones we cannot stand behind at the bottom, biggest
+        # first among themselves.
+        holdings.sort(key=lambda h: (0 if h.counted else 1, -h.value_usd))
         counted = [h for h in holdings if h.counted]
         total = sum(h.value_usd for h in counted)
         change = sum(change_from_pct(h.value_usd, h.change_24h_pct) for h in counted)
