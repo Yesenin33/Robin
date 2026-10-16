@@ -12,7 +12,6 @@ import { useAsync } from '../lib/useAsync'
 export function Profile() {
   const { user, logout } = useAuth()
   const nav = useNavigate()
-  const [upgrading, setUpgrading] = useState(false)
   const { state: ch, reload: reloadChannels } = useAsync(() => api.alertChannels(), [])
   const { state: alerts, reload: reloadAlerts } = useAsync(() => api.alerts(), [])
   const [tgLink, setTgLink] = useState<{ url: string; code: string } | null>(null)
@@ -64,17 +63,6 @@ export function Profile() {
     else void reloadAlerts(true)
   }
 
-  const upgrade = async () => {
-    setUpgrading(true)
-    try {
-      window.location.href = (await api.checkout()).url
-    } catch {
-      toast('Upgrades are coming soon')
-      setUpgrading(false)
-    }
-  }
-
-  const plus = user?.plan === 'plus'
   const wallet = user?.wallets[0]?.address
   const account = wallet ? shortAddr(wallet) : 'No wallet'
   const toggles = [
@@ -97,25 +85,6 @@ export function Profile() {
           No wallet connected — connect one to see your portfolio and get alerts.
         </div>
       )}
-      {plus ? (
-        <div style={{ background: 'var(--green-soft)', border: '1px solid #14501F', borderRadius: 22, padding: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontWeight: 800, fontSize: 17 }}>Chainfolio Plus</div>
-            <div style={{ background: 'var(--green)', color: 'var(--green-ink)', fontSize: 12, fontWeight: 800, padding: '4px 10px', borderRadius: 99 }}>ACTIVE</div>
-          </div>
-          <div style={{ color: 'var(--muted)', fontSize: 14 }}>$4.99 / month</div>
-        </div>
-      ) : (
-        <div className="card" style={{ borderRadius: 22, padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontWeight: 800, fontSize: 17 }}>Free plan</div>
-            <div className="pill">FREE</div>
-          </div>
-          <div style={{ color: 'var(--muted)', fontSize: 14 }}>Plus: unlimited safety checks and instant alerts — $4.99 / month.</div>
-          <button className="btn btn-primary" style={{ height: 46, fontSize: 15, borderRadius: 14 }} disabled={upgrading} onClick={() => void upgrade()}>Get Plus</button>
-        </div>
-      )}
-
       <div className="label">Alerts</div>
       <div className="card" style={{ borderRadius: 22, overflow: 'hidden' }}>
         {toggles.map(t => (

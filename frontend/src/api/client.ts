@@ -69,7 +69,6 @@ export const api = {
     post<{ linked: boolean; chat: string; can_message: boolean; access_token: string | null }>('/alerts/telegram/link-webapp', { init_data }),
   telegramVerify: (code: string) => post<Channels>('/alerts/telegram/verify', { code }),
   telegramUnlink: () => req('/alerts/telegram', { method: 'DELETE' }),
-  checkout: () => post<{ url: string }>('/billing/checkout'),
 }
 
 export const isQueued = (r: Safety | ScanQueued): r is ScanQueued => 'queued' in r
