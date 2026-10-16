@@ -13,18 +13,22 @@ import { swapUrl } from '../lib/swap'
 const VERDICT: Record<Verdict, { vc: string; vt: string; soft: string; icon: string }> = {
   CLEAN: { vc: 'var(--green)', vt: 'var(--green-ink)', soft: 'var(--green-soft)', icon: '✓' },
   RISKY: { vc: 'var(--amber)', vt: 'var(--amber-ink)', soft: 'var(--amber-soft)', icon: '!' },
-  DANGER: { vc: 'var(--red)', vt: '#fff', soft: 'var(--red-soft)', icon: '✕' },
+  DANGER: { vc: 'var(--red)', vt: 'var(--on-red)', soft: 'var(--red-soft)', icon: '✕' },
   // neutral grey on purpose: "we couldn't check" must never look like a result, least of all a green one
-  UNKNOWN: { vc: 'var(--muted-2)', vt: 'var(--surface)', soft: 'var(--card)', icon: '?' },
+  UNKNOWN: { vc: 'var(--muted-2)', vt: 'var(--bg)', soft: 'var(--card)', icon: '?' },
 }
-const TONE = { ok: '#fff', warn: 'var(--amber)', bad: 'var(--red)', unknown: 'var(--muted-2)' }
+const TONE = { ok: 'var(--text)', warn: 'var(--amber-text)', bad: 'var(--red-text)', unknown: 'var(--muted-2)' }
 
 const sleep = (ms: number, signal: AbortSignal) => new Promise<void>(res => {
   const t = setTimeout(res, ms)
   signal.addEventListener('abort', () => { clearTimeout(t); res() }, { once: true })
 })
 
-export type Waiting = { state: 'queued' | 'running'; elapsedS: number }
+export type Waiting = { state: 'queued' | 'running'; elapsedS: number; stage?: string | null; etaS?: number | null }
+export const STAGES: [string, string][] = [
+  ['contract', 'Reading the contract'], ['market', 'Checking liquidity'], ['transfers', 'Reading transfers'],
+  ['holders', 'Checking holders'], ['scoring', 'Scoring the risks'],
+]
 const GIVE_UP_S = 180
 
 /** GET /safety returns at once. A 202 means the scan is queued/running in the worker: poll until it lands. */
@@ -36,7 +40,7 @@ async function fetchSafety(ca: string, signal: AbortSignal, onWait: (w: Waiting)
     if (!isQueued(r)) return r
     const elapsedS = Math.round((Date.now() - t0) / 1000)
     if (elapsedS > GIVE_UP_S) throw new Error('scan timeout')
-    onWait({ state: r.state ?? 'queued', elapsedS })
+    onWait({ state: r.state ?? 'queued', elapsedS, stage: r.stage, etaS: r.eta_s })
     await sleep((r.retry_after_s ?? 3) * 1000, signal)
     if (signal.aborted) return null
   }
@@ -122,15 +126,28 @@ function SafetyView({ ca, onLeave }: { ca: string; onLeave: () => void }) {
     ctl.current = c
     setView({ status: 'wait', w: { state: 'queued', elapsedS: 0 } })
     fetchSafety(ca, c.signal, w => setView({ status: 'wait', w }))
-      .then(d => { if (d) { saveRecent({ ca, sym: d.symbol ?? shortAddr(ca), ts: Date.now() }); setView({ status: 'ready', data: d }) } })
+      .then(async d => {
+        if (!d) return
+        saveRecent({ ca, sym: d.symbol ?? shortAddr(ca), ts: Date.now() })
+        setView({ status: 'ready', data: d })
+        // an earlier verdict is on screen while a fresh check runs: swap it in quietly when it lands
+        for (let i = 0; d.refreshing && i < 30 && !c.signal.aborted; i++) {
+          await sleep(3000, c.signal)
+          if (c.signal.aborted) return
+          const r = await api.safety(ca, c.signal).catch(() => null)
+          if (r && !isQueued(r) && !r.refreshing) { setView({ status: 'ready', data: r }); return }
+        }
+      })
       .catch(() => { if (!c.signal.aborted) setView({ status: 'error' }) })
     return () => c.abort()
   }, [ca, run])
 
   if (view.status === 'wait') {
     const w = view.w
+    const cur = STAGES.findIndex(([k]) => k === w.stage)
     return <ProgressState title="Checking this token"
-      detail={w.state === 'running' ? 'Reading the contract, the holders and the liquidity pool…' : 'Waiting for a free checker…'}
+      detail={w.state === 'running' ? 'A checker is on it now.' : 'Waiting for a free checker…'}
+      steps={w.state === 'running' ? STAGES.map(([, t]) => t) : undefined} current={cur >= 0 ? cur : 0} etaS={w.etaS}
       elapsedS={w.elapsedS} onCancel={() => { ctl.current?.abort(); onLeave() }} />
   }
   if (view.status === 'error') {
@@ -145,7 +162,7 @@ function SafetyView({ ca, onLeave }: { ca: string; onLeave: () => void }) {
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        <Avatar seed={ca} letter={s.symbol ?? '?'} size={52} />
+        <Avatar seed={ca} letter={s.symbol ?? '?'} size={52} image={s.image_url} />
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 22, fontWeight: 800 }}>{s.name ?? s.symbol ?? 'Unknown token'}</div>
           <button className="num" onClick={() => { void navigator.clipboard?.writeText(ca); toast('Address copied') }}
@@ -155,7 +172,8 @@ function SafetyView({ ca, onLeave }: { ca: string; onLeave: () => void }) {
         </div>
       </div>
 
-      <div style={{ borderRadius: 24, padding: 22, background: v.soft, border: `1px solid ${v.vc}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {s.refreshing && <div className="notice col-12" role="status">Showing the check from {ago(s.scanned_at)}. A fresh one is running…</div>}
+      <div className="col-7" style={{ borderRadius: 24, padding: 22, background: v.soft, boxShadow: `inset 0 0 0 1px ${v.vc}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: 8, background: v.vc, color: v.vt, fontWeight: 800, fontSize: 18, letterSpacing: '.08em', padding: '8px 16px', borderRadius: 99 }}>
           {v.icon} {s.verdict}
         </div>
@@ -167,6 +185,7 @@ function SafetyView({ ca, onLeave }: { ca: string; onLeave: () => void }) {
         )}
       </div>
 
+      <div className="col-5 sticky" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         {s.metrics.map(m => <MetricCard key={m.key} m={m} />)}
       </div>
@@ -185,13 +204,14 @@ function SafetyView({ ca, onLeave }: { ca: string; onLeave: () => void }) {
       </div>
       {s.verdict === 'DANGER' && <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--red-text)' }}>Buying this one is not recommended.</div>}
       {s.verdict === 'UNKNOWN' && <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--muted-2)' }}>We couldn't check this one — don't treat it as safe.</div>}
+      </div>
       {swap && <SwapSheet side={swap} safety={s} onClose={() => setSwap(null)} fallbackUrl={swapUrl(ca, swap)} />}
     </>
   )
 }
 
 function MetricCard({ m }: { m: Metric }) {
-  const color = m.tone === 'ok' && m.key === 'real_hands' ? 'var(--green)' : TONE[m.tone] ?? TONE.unknown
+  const color = m.tone === 'ok' && m.key === 'real_hands' ? 'var(--green-text)' : TONE[m.tone] ?? TONE.unknown
   return (
     <div className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ fontSize: 12, color: 'var(--muted-2)', fontWeight: 600 }}>{m.label}</div>

@@ -1,44 +1,64 @@
-/* ============ design tokens (single source for the whole app; Chainfolio.dc.html keeps the original mock) ============ */
+/* ============ design tokens ============
+   Direction: the Robinhood look - light, calm, one green, near-black type, soft cards, hairlines instead of borders.
+   Source: NOT sampled from robinhood.com (the build environment has no network). Green #00C805 is the Robinhood green
+   already used by the product; neutrals and type are a restrained near-black-on-white system chosen to match that
+   feel and to meet contrast (text >= 4.5:1). Replace the values below if the brand team supplies exact ones.
+   Dark is the same token set, opt-in via [data-theme="dark"] (Profile -> Appearance). */
 :root {
-  /* surfaces: each level is lighter than the one below it - depth comes from this, not from borders */
-  --bg: #06080A;
-  --surface: #0B0E11;       /* level 0: app shell */
-  --surface-1: #10151A;     /* level 1: grouped areas */
-  --card: #151B22;          /* level 2: cards */
-  --surface-3: #1C242D;     /* level 3: raised / pressed / sheets */
-  --skel: #1B2129;
-  --hairline: rgba(255,255,255,.07);   /* separators and the one-pixel edge of a card */
-  --line: #232930;
-  --line-2: #323B45;
-  --text: #fff;
-  --text-2: #D3D9DF;
-  --muted: #A9B1BA;          /* >= 7:1 on surface */
-  --muted-2: #8F98A2;        /* >= 5.5:1 on surface-3 */
-  --faint: #7C858F;          /* smallest allowed text colour: >= 4.5:1 on every surface */
-  --green: #00C805;
-  --green-hover: #33D435;
-  --green-ink: #04210A;
-  --green-soft: #0B2A12;
-  --red: #FF4D4D;
-  --red-text: #FF8080;
-  --red-soft: #2A1416;
-  --red-line: #5A2428;
+  --bg: #FFFFFF;             /* page */
+  --surface: #FFFFFF;        /* level 0 */
+  --surface-1: #F6F8F9;      /* level 1: grouped areas */
+  --card: #F6F8F9;           /* level 2: cards */
+  --surface-3: #FFFFFF;      /* level 3: sheets, popovers (lifted by shadow) */
+  --skel: #E9EDEF;
+  --skel-hi: #F4F6F7;
+  --hairline: rgba(11,15,16,.09);
+  --line: #E3E8EB;
+  --line-2: #CFD6DA;
+  --text: #0B0F10;
+  --text-2: #29323A;
+  --muted: #4B565E;          /* 7.5:1 on white */
+  --muted-2: #56626B;        /* 6.2:1 on white, 5.7:1 on --card */
+  --faint: #66727B;          /* smallest text colour: 4.9:1 on white, 4.5:1 on --card */
+  --green: #00C805;          /* fills, icons, graphics */
+  --green-hover: #00B004;
+  --green-text: #067A0A;     /* green TEXT on light: 5.4:1 on white */
+  --green-ink: #04210A;      /* text ON a green fill */
+  --green-soft: #E4F8E5;
+  --red: #E5380F;
+  --red-text: #BF2E08;       /* 5.3:1 on white */
+  --red-soft: #FDEDE8;
+  --red-line: #F3B8A8;
   --amber: #F5A524;
+  --amber-text: #8F5200;
   --amber-ink: #2A1A00;
-  --amber-soft: #2A1D07;
+  --amber-soft: #FFF3DB;
+  --on-red: #FFFFFF;
+  --avatar-ink: #0B0F10;
+  --scrim: rgba(11,15,16,.42);
 
-  /* spacing scale (4 px base) */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px;
-  /* radius scale */
   --r1: 8px; --r2: 12px; --r3: 16px; --r4: 24px; --r-pill: 99px;
-  /* elevation: soft, layered shadows */
-  --elev-1: 0 1px 2px rgba(0,0,0,.35), 0 0 0 1px var(--hairline);
-  --elev-2: 0 6px 20px rgba(0,0,0,.35), 0 0 0 1px var(--hairline);
-  --elev-3: 0 20px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.09);
-  /* motion */
+  --elev-1: 0 1px 2px rgba(11,15,16,.05), 0 0 0 1px var(--hairline);
+  --elev-2: 0 8px 24px rgba(11,15,16,.08), 0 0 0 1px var(--hairline);
+  --elev-3: 0 24px 64px rgba(11,15,16,.18), 0 0 0 1px var(--hairline);
   --dur: 180ms;
   --ease: cubic-bezier(.2, .8, .2, 1);
-  --focus: 0 0 0 3px rgba(0,200,5,.45);
+  --focus: 0 0 0 3px rgba(0,200,5,.40);
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #0A0D0F; --surface: #0E1215; --surface-1: #13181C; --card: #171D22; --surface-3: #1D252B;
+  --skel: #1B2229; --skel-hi: #242D35;
+  --hairline: rgba(255,255,255,.08); --line: #232A30; --line-2: #333C44;
+  --text: #FFFFFF; --text-2: #D6DCE1; --muted: #AEB6BE; --muted-2: #98A1AA; --faint: #8A939C;
+  --green-hover: #33D435; --green-text: #1FD825; --green-soft: #0B2A12;
+  --red: #FF5A3C; --red-text: #FF8F7A; --red-soft: #2B1612; --red-line: #5A2A22;
+  --amber-text: #F5A524; --amber-soft: #2A1D07;
+  --avatar-ink: #0B0F10; --scrim: rgba(0,0,0,.6);
+  --elev-1: 0 1px 2px rgba(0,0,0,.35), 0 0 0 1px var(--hairline);
+  --elev-2: 0 8px 24px rgba(0,0,0,.4), 0 0 0 1px var(--hairline);
+  --elev-3: 0 24px 64px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.09);
   color-scheme: dark;
 }
 
@@ -64,31 +84,54 @@ button:disabled { opacity: .5; cursor: default }
   *, *::before, *::after { animation: none !important; transition: none !important }
 }
 
-/* ---------- animated background ---------- */
-.bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; contain: paint; background: radial-gradient(ellipse at 50% 40%, #08170C 0%, #06080A 70%) }
-.bg-blob1 { position: absolute; left: -10%; top: -20%; width: 70vw; height: 70vw; border-radius: 50%; background: radial-gradient(circle, rgba(0,200,5,.28), rgba(0,200,5,0) 65%); filter: blur(30px); animation: cfdrift 14s ease-in-out infinite }
-.bg-blob2 { position: absolute; right: -15%; bottom: -25%; width: 80vw; height: 80vw; border-radius: 50%; background: radial-gradient(circle, rgba(40,255,160,.2), rgba(0,0,0,0) 65%); filter: blur(40px); animation: cfdrift 18s ease-in-out infinite reverse }
-.bg-grid { position: absolute; left: -50%; right: -50%; bottom: -10%; height: 60%; transform: perspective(500px) rotateX(68deg); transform-origin: bottom; background-image: linear-gradient(rgba(0,200,5,.35) 1px, transparent 1px), linear-gradient(90deg, rgba(0,200,5,.35) 1px, transparent 1px); background-size: 60px 60px; animation: cfgrid 3s linear infinite; -webkit-mask-image: linear-gradient(to top, #000, transparent 85%); mask-image: linear-gradient(to top, #000, transparent 85%) }
-.bg-particle { position: absolute; bottom: -20px; border-radius: 50%; background: #7CFFA0; box-shadow: 0 0 12px #00C805; opacity: 0 }
-.bg-vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(6,8,10,0) 40%, rgba(6,8,10,.7) 100%) }
+/* ---------- atmosphere: two static soft glows (no animation, no filter: cheap to render) ---------- */
+.bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; contain: paint; background: var(--bg) }
+.bg-blob1 { position: absolute; left: -12%; top: -28%; width: 62vw; height: 62vw; border-radius: 50%; background: radial-gradient(circle, rgba(0,200,5,.10), rgba(0,200,5,0) 65%) }
+.bg-blob2 { position: absolute; right: -16%; bottom: -34%; width: 70vw; height: 70vw; border-radius: 50%; background: radial-gradient(circle, rgba(0,200,5,.07), rgba(0,200,5,0) 65%) }
+:root[data-theme="dark"] .bg-blob1 { background: radial-gradient(circle, rgba(0,200,5,.16), rgba(0,200,5,0) 65%) }
 
-/* ---------- app shell (phone column) ---------- */
-.shell { position: relative; z-index: 1; min-height: 100%; display: flex; justify-content: center }
-/* No backdrop-filter: over an animated backdrop it is recomputed every frame (mobile flicker + dropped taps).
-   The translucent background set inline in App.tsx already gives the look. */
-.phone { width: 100%; max-width: 430px; min-height: 100dvh; display: flex; flex-direction: column }
-@media (min-width: 640px) {
-  .shell { align-items: center; padding: 32px 20px }
-  .phone { height: min(860px, calc(100dvh - 64px)); min-height: 0; border-radius: 36px; overflow: hidden; box-shadow: var(--elev-3), 0 0 60px rgba(0,200,5,.10) }
-}
+/* ---------- app shell ----------
+   < 768   phone: one column, bottom tab bar
+   768-1023 tablet: top navigation, centred 720 px content
+   >= 1024 desktop: top navigation, full-width site with a 1120 px content grid */
+.shell { position: relative; z-index: 1; min-height: 100dvh; display: flex; flex-direction: column }
+.phone { width: 100%; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg) }
 .scroll { flex: 1; overflow: auto; display: flex; flex-direction: column; position: relative; z-index: 1 }
-.page { padding: 28px 24px; display: flex; flex-direction: column; gap: 22px; flex: 1; padding-top: max(28px, env(safe-area-inset-top)) }
-.app-page { padding: 24px 20px 28px; display: flex; flex-direction: column; gap: 18px; flex: 1; padding-top: max(24px, env(safe-area-inset-top)) }
+.page { padding: 28px 24px; display: flex; flex-direction: column; gap: 22px; flex: 1; padding-top: max(28px, env(safe-area-inset-top)); width: 100%; max-width: 560px; margin: 0 auto }
+.app-page { padding: 24px 20px 28px; display: flex; flex-direction: column; gap: 18px; flex: 1; padding-top: max(24px, env(safe-area-inset-top)); width: 100%; max-width: 560px; margin: 0 auto }
+
+.topnav { display: none }
+.tabbar { display: flex; background: var(--surface); box-shadow: 0 -1px 0 var(--hairline); padding: var(--s2) var(--s2) max(18px, env(safe-area-inset-bottom)) }
+@media (min-width: 768px) {
+  .tabbar { display: none }
+  .topnav { display: flex; align-items: center; gap: var(--s6); height: 64px; padding: 0 var(--s6); background: var(--surface); box-shadow: 0 1px 0 var(--hairline); position: sticky; top: 0; z-index: 20 }
+  .topnav-links { display: flex; gap: var(--s1); margin-left: var(--s4) }
+  .toplink { min-height: 44px; display: inline-flex; align-items: center; padding: 0 var(--s4); border-radius: var(--r-pill); color: var(--muted-2); font-weight: 700; font-size: 15px; text-decoration: none; transition: background var(--dur) var(--ease), color var(--dur) var(--ease) }
+  .toplink:hover { background: var(--card); color: var(--text) }
+  .toplink.active { background: var(--card); color: var(--text) }
+  .page, .app-page { max-width: 720px; padding-top: 32px }
+}
+@media (min-width: 1024px) {
+  .topnav { padding: 0 max(var(--s8), calc((100vw - 1120px) / 2)) }
+  .page, .app-page { max-width: 1120px; padding: 40px var(--s8) 56px }
+  .app-page { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--s6); row-gap: var(--s5); align-content: start }
+  .app-page > * { grid-column: 1 / -1 }
+  .app-page > .col-4 { grid-column: span 4 }
+  .app-page > .col-5 { grid-column: span 5 }
+  .app-page > .col-6 { grid-column: span 6 }
+  .app-page > .col-7 { grid-column: span 7 }
+  .app-page > .col-8 { grid-column: span 8 }
+  .sticky { position: sticky; top: 88px; align-self: start }
+  .center-state { min-height: 320px }
+}
+.cols-2 { display: grid; gap: var(--s3) }
+@media (min-width: 768px) { .cols-2 { grid-template-columns: 1fr 1fr } }
+@media (min-width: 1024px) { .cols-3 { grid-template-columns: repeat(3, 1fr) } }
+.cols-3 { display: grid; gap: var(--s3) }
 
 /* tab bar */
-.tabbar { display: flex; background: var(--surface); box-shadow: 0 -1px 0 var(--hairline); padding: var(--s2) var(--s2) max(18px, env(safe-area-inset-bottom)) }
 .tab { flex: 1; min-height: 48px; background: none; border: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s1); padding: var(--s1) 0; color: var(--muted-2); text-decoration: none; border-radius: var(--r2); transition: color var(--dur) var(--ease) }
-.tab.active { color: var(--green) }
+.tab.active { color: var(--green-text) }
 .tab span { font-size: 12px; font-weight: 700; line-height: 16px }
 
 /* ---------- type scale ---------- */
@@ -104,16 +147,16 @@ button:disabled { opacity: .5; cursor: default }
 .label { font-size: 13px; line-height: 18px; font-weight: 700; color: var(--muted-2); letter-spacing: .01em }
 .h1 { font-size: 26px; line-height: 32px; font-weight: 800; letter-spacing: -.015em }
 .sub { color: var(--muted-2); font-size: 14px; line-height: 20px }
-.up { color: var(--green) } .down { color: var(--red) }
+.up { color: var(--green-text) } .down { color: var(--red-text) }
 .hair { height: 1px; background: var(--hairline); border: 0; margin: 0 }
 
 .btn { min-height: 52px; height: 52px; border-radius: var(--r3); border: 0; font-size: 16px; font-weight: 800; transition: transform var(--dur) var(--ease), background var(--dur) var(--ease), box-shadow var(--dur) var(--ease) }
 .btn:active:not(:disabled) { transform: scale(.98) }
-.btn-primary { background: var(--green); color: var(--green-ink); box-shadow: 0 6px 18px rgba(0,200,5,.22) }
+.btn-primary { background: var(--green); color: var(--green-ink); box-shadow: 0 6px 18px rgba(0,200,5,.25) }
 .btn-primary:hover:not(:disabled) { background: var(--green-hover) }
 .btn-ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--line-2); color: var(--text); font-weight: 700 }
-.btn-white { background: #fff; color: var(--surface) }
-.btn-danger { background: transparent; box-shadow: inset 0 0 0 1px var(--red-line); color: var(--red); height: 52px; font-size: 15px }
+.btn-white { background: var(--text); color: var(--bg) }
+.btn-danger { background: transparent; box-shadow: inset 0 0 0 1px var(--red-line); color: var(--red-text); height: 52px; font-size: 15px }
 .btn-sm { height: 48px; min-height: 48px; padding: 0 28px; border-radius: var(--r2); font-size: 15px }
 
 .input { height: 52px; border-radius: var(--r3); background: var(--card); border: 0; box-shadow: inset 0 0 0 1px var(--hairline); padding: 0 var(--s4); color: var(--text); font-size: 16px; width: 100%; outline: none; transition: box-shadow var(--dur) var(--ease) }
@@ -123,16 +166,16 @@ button:disabled { opacity: .5; cursor: default }
 .btn:focus-visible, .tab:focus-visible { box-shadow: var(--focus) }
 
 .chip { min-height: 44px; display: inline-flex; flex-direction: column; justify-content: center; gap: 1px; padding: 6px 14px; border-radius: var(--r2); border: 0; background: var(--card); box-shadow: var(--elev-1); color: var(--text-2); text-align: left; transition: background var(--dur) var(--ease) }
-.chip.on { background: #fff; color: var(--surface) }
+.chip.on { background: var(--text); color: var(--bg) }
 .chip b { font-size: 14px; line-height: 18px } .chip small { font-size: 12px; line-height: 14px; color: inherit; opacity: .72 }
 
-.avatar { border-radius: 50%; color: var(--surface); font-weight: 800; display: flex; align-items: center; justify-content: center; flex: none }
+.avatar { border-radius: 50%; color: var(--avatar-ink); overflow: hidden; position: relative; font-weight: 800; display: flex; align-items: center; justify-content: center; flex: none }
 
 .toggle { width: 48px; height: 28px; border-radius: var(--r-pill); position: relative; flex: none; transition: background var(--dur) var(--ease) }
 .toggle i { position: absolute; top: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: left var(--dur) var(--ease) }
 
 .spinner { width: 44px; height: 44px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--green); animation: cfspin 1s linear infinite }
-.skel { background: linear-gradient(90deg, var(--skel) 0%, #232C36 50%, var(--skel) 100%); background-size: 200% 100%; animation: cfshimmer 1.4s ease-in-out infinite }
+.skel { background: linear-gradient(90deg, var(--skel) 0%, var(--skel-hi) 50%, var(--skel) 100%); background-size: 200% 100%; animation: cfshimmer 1.4s ease-in-out infinite }
 @keyframes cfshimmer { from { background-position: 200% 0 } to { background-position: -200% 0 } }
 
 .notice-error { background: var(--red-soft); box-shadow: inset 0 0 0 1px var(--red-line); color: var(--red-text); border-radius: var(--r2); padding: var(--s4); font-size: 14px; line-height: 20px }
@@ -144,8 +187,8 @@ button:disabled { opacity: .5; cursor: default }
 .list-row:last-child { box-shadow: none }
 
 /* ---------- bottom sheet (the ONE confirmation surface: swap, removals, anything that needs a yes) ---------- */
-.sheet-scrim { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); animation: cffade var(--dur) var(--ease) }
-.sheet { position: fixed; left: 50%; bottom: 0; z-index: 51; width: 100%; max-width: 430px; transform: translateX(-50%); max-height: 92dvh; overflow: auto; background: var(--surface-3); border-radius: var(--r4) var(--r4) 0 0; box-shadow: var(--elev-3); padding: var(--s2) var(--s5) max(var(--s6), env(safe-area-inset-bottom)); animation: cfsheet var(--dur) var(--ease); display: flex; flex-direction: column; gap: var(--s4) }
+.sheet-scrim { position: fixed; inset: 0; z-index: 50; background: var(--scrim); animation: cffade var(--dur) var(--ease) }
+.sheet { position: fixed; left: 50%; bottom: 0; z-index: 51; width: 100%; max-width: 480px; transform: translateX(-50%); max-height: 92dvh; overflow: auto; background: var(--surface-3); border-radius: var(--r4) var(--r4) 0 0; box-shadow: var(--elev-3); padding: var(--s2) var(--s5) max(var(--s6), env(safe-area-inset-bottom)); animation: cfsheet var(--dur) var(--ease); display: flex; flex-direction: column; gap: var(--s4) }
 .sheet-grab { width: 40px; height: 4px; border-radius: 2px; background: var(--line-2); align-self: center; margin: var(--s2) 0 }
 .sheet-title { font-size: 20px; line-height: 26px; font-weight: 800; letter-spacing: -.01em }
 .row-kv { display: flex; justify-content: space-between; gap: var(--s3); font-size: 14px; line-height: 20px }
@@ -153,12 +196,17 @@ button:disabled { opacity: .5; cursor: default }
 @keyframes cffade { from { opacity: 0 } }
 @keyframes cfsheet { from { transform: translate(-50%, 24px); opacity: 0 } }
 
-.toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); background: #fff; color: var(--surface); font-weight: 700; font-size: 14px; line-height: 20px; padding: 12px 16px; border-radius: var(--r-pill); z-index: 60; white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; box-shadow: 0 8px 30px rgba(0,0,0,.4) }
+.toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); background: var(--text); color: var(--bg); font-weight: 700; font-size: 14px; line-height: 20px; padding: 12px 16px; border-radius: var(--r-pill); z-index: 60; white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; box-shadow: 0 8px 30px rgba(0,0,0,.4) }
 
-/* Phones: a still backdrop (particles hidden, blobs and grid frozen). */
-@media (max-width: 768px) {
-  .phone { backdrop-filter: none; -webkit-backdrop-filter: none }
-  .bg-blob1, .bg-blob2 { animation: none !important; filter: blur(18px); opacity: .55 }
-  .bg-grid { animation: none !important }
-  .bg-particle { display: none }
+
+@media (min-width: 1024px) { .pull-hint { display: none !important } .app-page > .col-7 { align-self: start } }
+
+/* landing: phone = one column; desktop = hero on the left, demo card on the right */
+@media (min-width: 1024px) {
+  .landing { display: grid; grid-template-columns: 1.15fr 1fr; column-gap: 72px; row-gap: 32px; align-content: center; min-height: calc(100dvh - 0px) }
+  .landing-head { grid-column: 1 / -1 }
+  .landing-copy h1 { font-size: 56px !important }
+  .landing-demo { grid-column: 2; grid-row: 2 / span 3; align-self: center }
+  .landing-copy, .landing-cta, .landing-badges { grid-column: 1 }
+  .landing-cta { max-width: 280px }
 }

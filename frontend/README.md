@@ -42,10 +42,19 @@ PWA: `public/manifest.webmanifest` + `public/sw.js` (app-shell cache, API never 
 
 ## Design system and source of truth
 
-`src/styles.css` is the source of truth for the look (tokens at the top: surface levels, hairline, radius scale
-8/12/16/24/99, elevation, type scale `.t-display/.t-title/.t-body/.t-caption`, 180 ms ease-out motion, focus ring,
-`prefers-reduced-motion`). `../Chainfolio.dc.html` is the original mock and is NOT kept in sync any more.
-Every confirmation uses `components/Sheet.tsx` (the swap sheet included).
+`src/styles.css` is the source of truth (tokens at the top). Direction: Robinhood's own look — light, calm, one green
+(`#00C805`), near-black type, soft cards, hairlines instead of borders. The exact colours were **not** sampled from
+robinhood.com (no network in the build environment); neutrals are chosen to match that feel and to meet contrast
+(muted text >= 4.5:1). Dark is the same token set, opt-in under Profile -> Appearance (`[data-theme="dark"]`).
+Scales: radius 8/12/16/24/99, elevation `--elev-1..3`, type `.t-display/.t-title/.t-body/.t-caption`, motion 180 ms
+ease-out, `prefers-reduced-motion` honoured, focus rings, 44 px hit areas. `../Chainfolio.dc.html` is the original dark
+mock and is **not** kept in sync.
+
+Layout: < 768 px phone (bottom tabs); 768-1023 tablet (top nav, 720 px column); >= 1024 desktop (top nav, 1120 px
+12-column grid via `.col-*`). Every confirmation uses `components/Sheet.tsx` (the swap sheet included).
+
+Brand: `public/mark.svg` is the mark; `python3 scripts/make_icons.py` regenerates favicon.ico/svg, apple-touch-icon,
+192/512 and maskable icons and the 1200x630 `og.png`. `VITE_PUBLIC_URL` (see `.env.production`) makes `og:image` absolute.
 
 ## In-app swap
 

@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom'
 
 import { Background } from './components/Background'
 import { TabBar } from './components/TabBar'
+import { TopNav } from './components/TopNav'
 import { toast, Toaster } from './components/ui'
 import { useAuth } from './lib/auth'
 import { linkTelegramWebApp } from './lib/telegram'
@@ -14,9 +15,6 @@ import { Portfolio } from './screens/Portfolio'
 import { Profile } from './screens/Profile'
 import { Safety } from './screens/Safety'
 
-// Phone surface opacity per area, as in the design (background shows through more on landing)
-const alphaFor = (path: string) => (path === '/' ? 0.62 : path.startsWith('/app') ? 0.86 : 0.72)
-
 function AppLayout() {
   const { user, ready } = useAuth()
   if (!ready) return <div className="center-state"><div className="spinner" /></div>
@@ -25,6 +23,7 @@ function AppLayout() {
   if (user.wallets.length === 0) return <div className="scroll"><ConnectGate /></div>
   return (
     <>
+      <TopNav />
       <div className="scroll"><Outlet /></div>
       <TabBar />
     </>
@@ -52,12 +51,11 @@ function TelegramBridge() {
 }
 
 export function App() {
-  const { pathname } = useLocation()
   return (
     <>
       <Background />
       <div className="shell">
-        <main className="phone" style={{ background: `rgba(11,14,17,${alphaFor(pathname)})` }}>
+        <main className="phone">
           <Routes>
             <Route path="/" element={<div className="scroll"><Landing /></div>} />
             <Route path="/login" element={<div className="scroll"><Onboarding /></div>} />

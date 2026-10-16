@@ -11,6 +11,7 @@ export interface Holding {
   token: string
   symbol: string
   name: string | null
+  image_url?: string | null
   amount: number
   price_usd: number | null
   value_usd: number
@@ -18,6 +19,8 @@ export interface Holding {
   pnl_pct: number | null
   verdict: Verdict | null
   liquidity_usd?: number | null  // depth of its pool; null = no market data
+  counted?: boolean  // false = listed but not in total_usd
+  not_counted_reason?: string | null
 }
 export interface Portfolio {
   address: string
@@ -26,6 +29,7 @@ export interface Portfolio {
   change_24h_pct: number
   holdings: Holding[]
   excluded_count?: number  // holdings worth more on paper than their pool can pay out: not listed, not counted
+  not_counted_count?: number  // listed, but our own checks can't vouch they can be sold: not in total_usd
   updated_at: string
 }
 
@@ -45,8 +49,14 @@ export interface Safety {
   scanned_at: string
   holders_stale_at?: string | null  // holder data is the last good snapshot (explorer was busy)
   stale?: boolean  // a requested fresh scan failed; this is the previous result
+  refreshing?: boolean  // this is the previous result; a fresh check is running in the background
+  image_url?: string | null
 }
-export interface ScanQueued { address: string; queued: true; state?: 'queued' | 'running'; retry_after_s?: number }
+export interface ScanQueued {
+  address: string; queued: true; state?: 'queued' | 'running'; retry_after_s?: number
+  stage?: string | null  // contract | market | transfers | holders | scoring
+  eta_s?: number | null  // measured median of recent scans
+}
 
 export type RiskTag = 'low' | 'medium' | 'high'
 
@@ -56,6 +66,7 @@ export interface CopyItem {
   side: 'buy' | 'sell'
   token_symbol: string
   token_address: string | null
+  token_image_url?: string | null
   tx_hash: string | null
   amount_usd: number | null
   reason: string

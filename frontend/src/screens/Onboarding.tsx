@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { Logo } from '../components/Logo'
 import { WalletConnectPanel } from '../components/WalletConnect'
 import { useAuth } from '../lib/auth'
 
@@ -20,7 +21,10 @@ export function Onboarding() {
 
   return (
     <div className="page">
-      <button onClick={() => nav('/')} style={{ alignSelf: 'flex-start', background: 'none', border: 0, color: 'var(--muted-2)', fontSize: 14, padding: 0 }}>← Back</button>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <button onClick={() => nav('/')} style={{ background: 'none', border: 0, color: 'var(--muted-2)', fontSize: 14, padding: '12px 0', minHeight: 44 }}>← Back</button>
+        <Logo size={26} />
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-.02em' }}>Let's get you in</div>
         <div style={{ color: 'var(--muted)', fontSize: 15, lineHeight: 1.5 }}>Connect your wallet — it's your account. It takes about 10 seconds.</div>

@@ -6,6 +6,7 @@ import { Toggle, toast } from '../components/ui'
 import { useAuth } from '../lib/auth'
 import { shortAddr } from '../lib/format'
 import { disablePush, enablePush } from '../lib/push'
+import { currentTheme, setTheme, type Theme } from '../lib/theme'
 import { useAsync } from '../lib/useAsync'
 
 
@@ -16,6 +17,7 @@ export function Profile() {
   const { state: alerts, reload: reloadAlerts } = useAsync(() => api.alerts(), [])
   const [tgLink, setTgLink] = useState<{ url: string; code: string } | null>(null)
   const [tgInput, setTgInput] = useState('')
+  const [mode, setMode] = useState<Theme>(currentTheme())
   const channels = ch.status === 'ready' ? ch.data : { push: false, telegram: false, telegram_bot: null }
 
   // while the "Open @bot" card is up, watch for the bot confirming the link
@@ -81,10 +83,11 @@ export function Profile() {
     <div className="app-page">
       <div className="h1">Profile</div>
       {!wallet && (
-        <div className="notice-error" style={{ background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--muted)' }}>
+        <div className="notice">
           No wallet connected — connect one to see your portfolio and get alerts.
         </div>
       )}
+      <div className="col-6" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <div className="label">Alerts</div>
       <div className="card" style={{ borderRadius: 22, overflow: 'hidden' }}>
         {toggles.map(t => (
@@ -106,7 +109,7 @@ export function Profile() {
           </a>
           <div style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.45 }}>
             Tap the button and press Start — you're connected. On another device? Send the bot this code:{' '}
-            <b className="num" style={{ color: '#fff', letterSpacing: '.1em' }}>{tgLink.code}</b>
+            <b className="num" style={{ color: 'var(--text)', letterSpacing: '.1em' }}>{tgLink.code}</b>
           </div>
           <form style={{ display: 'flex', gap: 8 }} onSubmit={e => { e.preventDefault(); void submitBotCode() }}>
             <input className="input" style={{ height: 44, fontSize: 14 }} inputMode="numeric" maxLength={6} value={tgInput}
@@ -133,6 +136,15 @@ export function Profile() {
         </>
       )}
 
+      </div>
+      <div className="col-6" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <div className="label">Appearance</div>
+      <div className="card" style={{ borderRadius: 22, padding: 8, display: 'flex', gap: 6 }} role="group" aria-label="Appearance">
+        {(['light', 'dark'] as const).map(t => (
+          <button key={t} onClick={() => { setTheme(t); setMode(t) }} aria-pressed={mode === t} className={`chip ${mode === t ? 'on' : ''}`}
+            style={{ flex: 1, alignItems: 'center', minHeight: 48 }}><b>{t === 'light' ? 'Light' : 'Dark'}</b></button>
+        ))}
+      </div>
       <div className="label">Settings</div>
       <div className="card" style={{ borderRadius: 22, overflow: 'hidden' }}>
         {settings.map(s => {
@@ -146,6 +158,7 @@ export function Profile() {
       </div>
 
       <button className="btn btn-danger" onClick={() => { logout(); nav('/') }}>Sign out</button>
+      </div>
     </div>
   )
 }

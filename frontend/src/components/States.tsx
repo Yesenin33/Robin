@@ -10,16 +10,34 @@ export function Skeleton({ rows = 4 }: { rows?: number }) {
   )
 }
 
-/** Progress that says what is happening, how long it has been, and always offers a way out. */
-export function ProgressState({ title, detail, elapsedS, onCancel }: {
+/** Progress that says what is happening (real stages when the server reports them), how long it has been, a
+ *  measured estimate when we have one, and always a way out. */
+export function ProgressState({ title, detail, elapsedS, onCancel, steps, current, etaS }: {
   title: string; detail: string; elapsedS: number; onCancel: () => void
+  steps?: string[]; current?: number; etaS?: number | null
 }) {
+  const slow = etaS != null && elapsedS > etaS * 2 + 10
   return (
     <div className="center-state" role="status" aria-live="polite">
       <div className="spinner" />
       <div className="t-title">{title}</div>
       <div className="t-body" style={{ color: 'var(--muted)' }}>{detail}</div>
-      <div className="t-caption num">{elapsedS}s so far · most checks take under a minute</div>
+      {steps && (
+        <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6, textAlign: 'left' }}>
+          {steps.map((t, i) => {
+            const done = current != null && i < current, on = i === current
+            return (
+              <li key={t} className="t-body" style={{ display: 'flex', gap: 10, alignItems: 'center', color: on ? 'var(--text)' : done ? 'var(--green-text)' : 'var(--faint)', fontWeight: on ? 700 : 500 }}>
+                <span aria-hidden style={{ width: 16, textAlign: 'center' }}>{done ? '✓' : on ? '›' : '·'}</span>{t}
+              </li>
+            )
+          })}
+        </ol>
+      )}
+      <div className="t-caption num">
+        {elapsedS}s so far · {etaS != null ? `usually about ${etaS}s` : "we haven't timed this check yet"}
+      </div>
+      {slow && <div className="t-caption" style={{ color: 'var(--amber-text)' }}>This is taking longer than usual. The data sources are slow right now.</div>}
       <button className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={onCancel}>Stop waiting</button>
     </div>
   )

@@ -60,10 +60,10 @@ function PortfolioView({ address }: { address: string }) {
   const up = p.change_24h_usd >= 0
   return (
     <div className="app-page" onPointerDown={e => { y0.current = e.clientY }} onPointerUp={e => void onUp(e.clientY, e.currentTarget)}>
-      <div style={{ display: 'flex', justifyContent: 'center', fontSize: 12, color: 'var(--faint)', height: 16, marginTop: -8 }}>
+      <div className="pull-hint" style={{ display: 'flex', justifyContent: 'center', fontSize: 12, color: 'var(--faint)', height: 16, marginTop: -8 }}>
         {pulling ? 'Refreshing…' : '↓ Pull down to refresh'}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div className="col-4 sticky" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ color: 'var(--muted-2)', fontSize: 14, fontWeight: 600 }}>Total balance</div>
         <div className="num" style={{ fontSize: 44, fontWeight: 800, letterSpacing: '-.02em' }}>{usd(p.total_usd)}</div>
         <div className={up ? 'up' : 'down'} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, fontWeight: 700 }}>
@@ -72,15 +72,23 @@ function PortfolioView({ address }: { address: string }) {
           <span style={{ color: 'var(--muted-2)', fontWeight: 500, fontSize: 13 }}>today</span>
         </div>
       </div>
+      <div className="col-8" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="label" style={{ marginTop: 6 }}>Your holdings</div>
+      {(p.not_counted_count ?? 0) > 0 && (
+        <div className="notice" role="note">
+          {p.not_counted_count} {p.not_counted_count === 1 ? 'token is' : 'tokens are'} listed but not in your balance: we can't
+          confirm {p.not_counted_count === 1 ? 'it' : 'they'} could be sold. Tap one to see why.
+        </div>
+      )}
       {(p.excluded_count ?? 0) > 0 && (
-        <div className="notice">
+        <div className="notice" role="note">
           {p.excluded_count} {p.excluded_count === 1 ? 'token was' : 'tokens were'} left out. Their pools are too small to
           pay out what they look like they're worth, so counting them would be misleading.
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {p.holdings.map(h => <HoldingRow key={h.token} h={h} onOpen={() => h.token !== 'native' && nav(`/app/safety/${h.token}`)} />)}
+      </div>
       </div>
     </div>
   )
@@ -91,24 +99,27 @@ function HoldingRow({ h, onOpen }: { h: Holding; onOpen: () => void }) {
   const neg = (pct ?? 0) < 0
   return (
     <div onClick={onOpen} className="card" style={{ cursor: h.token === 'native' ? 'default' : 'pointer', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14 }}>
-      <Avatar seed={h.token} letter={h.symbol} color={h.token === 'native' ? '#4A90E2' : undefined} />
+      <Avatar seed={h.token} letter={h.symbol} image={h.image_url} color={h.token === 'native' ? '#4A90E2' : undefined} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 700, fontSize: 16, display: 'flex', gap: 6, alignItems: 'center' }}>
           {h.symbol}
-          {h.verdict === 'DANGER' && <span title="Failed safety check" style={{ fontSize: 12, color: 'var(--red)' }}>✕</span>}
-          {h.verdict === 'RISKY' && <span title="Risky" style={{ fontSize: 12, color: 'var(--amber)' }}>!</span>}
+          {h.verdict === 'DANGER' && <span title="Failed safety check" style={{ fontSize: 12, color: 'var(--red-text)' }}>✕</span>}
+          {h.verdict === 'RISKY' && <span title="Risky" style={{ fontSize: 12, color: 'var(--amber-text)' }}>!</span>}
           {h.verdict === 'UNKNOWN' && <span title="We couldn't check this one" style={{ fontSize: 12, color: 'var(--muted-2)' }}>?</span>}
         </div>
         <div style={{ color: 'var(--muted-2)', fontSize: 13, marginTop: 2 }}>
           {amount(h.amount)} {h.symbol}
           {h.price_usd == null && <span> · no price yet</span>}
         </div>
+        {h.counted === false && h.not_counted_reason && h.price_usd != null && (
+          <div style={{ fontSize: 12, lineHeight: '16px', marginTop: 4, color: 'var(--amber-text)', fontWeight: 600 }}>Not in your balance · {h.not_counted_reason}</div>
+        )}
       </div>
       <div style={{ textAlign: 'right' }}>
         <div className="num" style={{ fontWeight: 800, fontSize: 16 }}>
-          {h.price_usd == null ? '—' : usd(h.value_usd)}
+          {h.price_usd == null || h.counted === false ? '—' : usd(h.value_usd)}
         </div>
-        {pct != null && (
+        {pct != null && h.counted !== false && (
           <div className={neg ? 'down' : 'up'} style={{ fontWeight: 700, fontSize: 13, marginTop: 2 }}>{neg ? '▼ ' : '▲ '}{signedPct(pct)}</div>
         )}
       </div>

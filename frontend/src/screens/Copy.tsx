@@ -8,9 +8,9 @@ import { ago, shortAddr, usd } from '../lib/format'
 import { useAsync } from '../lib/useAsync'
 
 const TAG = {
-  low: { label: 'Low risk', bg: 'var(--green-soft)', fg: 'var(--green)' },
-  medium: { label: 'Medium risk', bg: 'var(--amber-soft)', fg: 'var(--amber)' },
-  high: { label: 'High risk', bg: 'var(--red-soft)', fg: 'var(--red)' },
+  low: { label: 'Low risk', bg: 'var(--green-soft)', fg: 'var(--green-text)' },
+  medium: { label: 'Medium risk', bg: 'var(--amber-soft)', fg: 'var(--amber-text)' },
+  high: { label: 'High risk', bg: 'var(--red-soft)', fg: 'var(--red-text)' },
 }
 
 export function Copy() {
@@ -33,14 +33,14 @@ export function Copy() {
       {state.status === 'ready' && state.data.suggested.length > 0 && (
         <>
           <div className="label">Worth following</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="cols-2">
             {state.data.suggested.map(s => <SuggestedCard key={s.address} s={s} onFollow={() => void reload(true)} />)}
           </div>
           {state.data.feed.length > 0 && <div className="label">Latest moves</div>}
         </>
       )}
       {state.status === 'ready' && (state.data.feed.length
-        ? <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{state.data.feed.map(w => <WalletCard key={w.address + w.ts + w.tx_hash} w={w} />)}</div>
+        ? <div className="cols-2">{state.data.feed.map(w => <WalletCard key={w.address + w.ts + w.tx_hash} w={w} />)}</div>
         : state.data.suggested.length === 0 && <EmptyState emoji="👀" title="No smart wallets right now" body="Check back soon. We'll show traders worth following here." cta="Refresh" onCta={() => void reload()} />)}
     </div>
   )
@@ -64,8 +64,8 @@ function FollowButton({ address, following, onDone }: { address: string; followi
   }
   return (
     <button disabled={busy} onClick={() => void toggle()} style={{
-      height: 46, borderRadius: 14, border: '1px solid var(--green)', fontWeight: 800, fontSize: 15,
-      background: on ? 'transparent' : 'var(--green)', color: on ? 'var(--green)' : 'var(--green-ink)',
+      height: 46, borderRadius: 14, border: '1px solid var(--green)', fontWeight: 800, fontSize: 15, minHeight: 46,
+      background: on ? 'transparent' : 'var(--green)', color: on ? 'var(--green-text)' : 'var(--green-ink)',
     }}>{on ? '✓ Copying' : 'Copy'}</button>
   )
 }
@@ -104,7 +104,10 @@ function WalletCard({ w }: { w: CopyItem }) {
         </div>
         <Tag t={w.risk_tag} />
       </div>
-      <div style={{ fontSize: 18, fontWeight: 800 }}>{w.side === 'buy' ? 'Bought' : 'Sold'}{amount} {w.token_symbol}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Avatar seed={w.token_address ?? w.token_symbol} letter={w.token_symbol} size={28} image={w.token_image_url} />
+        <span>{w.side === 'buy' ? 'Bought' : 'Sold'}{amount} {w.token_symbol}</span>
+      </div>
       <div style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.45 }}>{w.reason}</div>
       <FollowButton address={w.address} following={w.following} />
     </div>

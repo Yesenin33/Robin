@@ -2,7 +2,7 @@
 // Bump CACHE on any change to this file's behaviour: old caches are dropped on activate.
 // Navigations are network-first, so a deploy is picked up on the next load (shell cache = offline only).
 const CACHE = 'chainfolio-v2'
-const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg']
+const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg']
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)))
@@ -37,7 +37,7 @@ self.addEventListener('fetch', e => {
 self.addEventListener('push', e => {
   const data = e.data ? e.data.json() : {}
   e.waitUntil(self.registration.showNotification(data.title || 'Chainfolio', {
-    body: data.body || '', icon: '/icon.svg', data: { url: data.url || '/app/portfolio' },
+    body: data.body || '', icon: '/icon-192.png', data: { url: data.url || '/app/portfolio' },
   }))
 })
 
