@@ -40,19 +40,11 @@ class Settings(BaseSettings):
     scan_engine: str = "intelligence"
     scan_timeout_s: int = 60
 
-    # Auth
+    # Auth — wallet only (SIWE). There is no e-mail sign-in.
     jwt_secret: str = "change-me"
     jwt_ttl_s: int = 60 * 60 * 24 * 30
-    magic_link_ttl_s: int = 15 * 60
     siwe_domain: str = "localhost:3000"
     siwe_nonce_ttl_s: int = 10 * 60
-
-    # Mail (empty smtp_host = log link instead of sending)
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_user: str = ""
-    smtp_password: str = ""
-    mail_from: str = "Chainfolio <no-reply@chainfolio.app>"
 
     # Cache / rate limit
     safety_cache_ttl_s: int = 600

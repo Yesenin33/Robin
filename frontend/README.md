@@ -8,8 +8,7 @@ React 18 + TypeScript + Vite. Built 1:1 from the design `../Chainfolio.dc.html`
 | Route | Screen | Backend |
 |---|---|---|
 | `/` | Landing (demo ticker) | — |
-| `/login` | Onboarding: e-mail magic link / Connect wallet (SIWE, chain 4663) | `POST /auth/magic-link`, `GET /auth/siwe/nonce`, `POST /auth/siwe` |
-| `/auth/callback?token=` | Magic-link target | `GET /auth/verify` |
+| `/login` | Onboarding: Connect wallet (SIWE, chain 4663) — no e-mail path | `GET /auth/siwe/nonce`, `POST /auth/siwe` |
 | `/app/portfolio` | Total, 24h change, holdings, pull-to-refresh | `GET /portfolio/{address}` |
 | `/app/safety/:ca` | Verdict, risks, 4 metrics, Buy/Sell; polls on 202 | `GET /safety/{ca}` |
 | `/app/copy` | Smart wallets feed (empty state until Phase 2 API) | `GET /copy/feed`, `POST /copy/subscribe` |
@@ -29,7 +28,8 @@ npm run build        # dist/
 (free at cloud.reown.com; it is a build-time variable, passed to the `web` image by compose). A session without a
 wallet only sees the "Connect a wallet to continue" step.
 
-Backend `.env`: `FRONTEND_URL=http://localhost:3000` (magic links) and `SIWE_DOMAIN=localhost:3000`.
+Sign-in is wallet-only: there is no e-mail/magic-link path. Backend `.env`: `FRONTEND_URL=http://localhost:3000`
+(Telegram bot link) and `SIWE_DOMAIN=localhost:3000`.
 
 ## Deploy
 

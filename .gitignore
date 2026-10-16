@@ -11,3 +11,5 @@ dist/
 # Secrets
 .env
 .env.local
+# Local screenshot/scratch output
+shots/

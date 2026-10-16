@@ -76,7 +76,7 @@ export function Profile() {
 
   const plus = user?.plan === 'plus'
   const wallet = user?.wallets[0]?.address
-  const account = wallet ? shortAddr(wallet) : (user?.email ?? 'No wallet')
+  const account = wallet ? shortAddr(wallet) : 'No wallet'
   const toggles = [
     { label: 'Phone alerts', sub: 'Web Push · risky moves in your holdings', on: channels.push, flip: flipPush },
     { label: 'Telegram alerts', sub: channels.telegram ? 'Connected — alerts arrive in Telegram' : 'Not connected — tap to connect',

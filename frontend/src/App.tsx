@@ -6,7 +6,6 @@ import { TabBar } from './components/TabBar'
 import { toast, Toaster } from './components/ui'
 import { useAuth } from './lib/auth'
 import { linkTelegramWebApp } from './lib/telegram'
-import { AuthCallback } from './screens/AuthCallback'
 import { ConnectGate } from './screens/ConnectGate'
 import { Copy } from './screens/Copy'
 import { Landing } from './screens/Landing'
@@ -62,7 +61,6 @@ export function App() {
           <Routes>
             <Route path="/" element={<div className="scroll"><Landing /></div>} />
             <Route path="/login" element={<div className="scroll"><Onboarding /></div>} />
-            <Route path="/auth/callback" element={<div className="scroll"><AuthCallback /></div>} />
             <Route path="/app" element={<AppLayout />}>
               <Route index element={<Navigate to="portfolio" replace />} />
               <Route path="portfolio" element={<Portfolio />} />

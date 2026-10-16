@@ -18,7 +18,7 @@ app/
     engine/   IntelligenceEngine (default) + BuiltinEngine (market-only, offline dev); map_report()
     safety_service.py     report -> CLEAN/RISKY/DANGER + plain-language risks + 4 metrics
     portfolio_service.py  RPC balances + prices + 24h change + PnL (avg entry)
-    auth_service.py, siwe.py, mailer.py, embedded_wallet.py (Web3Auth/Privy stub)
+    auth_service.py (wallet-only SIWE), siwe.py, embedded_wallet.py (Web3Auth/Privy stub)
   jobs/       worker (APScheduler): scan queue, stale-score refresh, position snapshots
 alembic/      migrations
 scripts/bootstrap_indexer.py   seed tokens from chain + queue scans
@@ -49,10 +49,9 @@ Scans run in a thread with a timeout, guarded by a Redis lock per token (202 whi
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/auth/magic-link`, GET `/auth/verify` | e-mail sign-in |
 | POST | `/auth/link-token` | one-time token (10 min): another browser attaches its wallet to THIS account (`link_token` on `/auth/siwe`) |
 | POST | `/safety/{ca}/refresh` | priority scan; drops the cached result and the recent-DB-row shortcut until it lands |
-| GET/POST | `/auth/siwe/nonce`, `/auth/siwe` | wallet sign-in (EIP-4361) |
+| GET/POST | `/auth/siwe/nonce`, `/auth/siwe` | wallet sign-in (EIP-4361). The only sign-in path — no e-mail |
 | GET | `/portfolio/{address}` | holdings, 24h change, PnL |
 | GET | `/safety/{ca}` | verdict + summary + risks + 4 metrics; 202 while scanning |
 | GET | `/copy/feed?only_followed=` | followed wallets' swaps, plain-English reason + risk tag from the latest safety check |

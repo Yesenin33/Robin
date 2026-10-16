@@ -37,8 +37,6 @@ const post = async <T>(p: string, body?: unknown) =>
   (await req<T>(p, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })).data
 
 export const api = {
-  magicLink: (email: string) => post<{ sent: boolean }>('/auth/magic-link', { email }),
-  verify: (token: string) => get<TokenOut>(`/auth/verify?token=${encodeURIComponent(token)}`),
   siweNonce: () => get<{ nonce: string }>('/auth/siwe/nonce'),
   siwe: (message: string, signature: string, link_token?: string) =>
     post<TokenOut>('/auth/siwe', { message, signature, link_token }),

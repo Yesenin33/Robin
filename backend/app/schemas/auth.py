@@ -1,12 +1,4 @@
-from pydantic import BaseModel, EmailStr
-
-
-class MagicLinkIn(BaseModel):
-    email: EmailStr
-
-
-class MagicLinkOut(BaseModel):
-    sent: bool = True
+from pydantic import BaseModel
 
 
 class NonceOut(BaseModel):
@@ -33,7 +25,6 @@ class WalletOut(BaseModel):
 
 class UserOut(BaseModel):
     id: int
-    email: str | None
     plan: str
     wallets: list[WalletOut]
 

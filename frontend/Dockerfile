@@ -1,7 +1,9 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+# npm's cache lives in a BuildKit cache mount, not in the image layer: on this 10 GB box the dependency
+# tree (AppKit + wagmi + viem) otherwise pushes `npm ci` and the image export past the free space.
+RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY . .
 ARG VITE_SWAP_URL=
 ARG VITE_SWAP_NATIVE=ETH

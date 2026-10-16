@@ -48,6 +48,9 @@ function loadKit() {
         icons: [`${window.location.origin}/icon.svg`],
       },
       features: { analytics: false, email: false, socials: false, onramp: false, swaps: false },
+      // Phantom is not in the shortlist the modal shows by default (it lists the most-used wallets), so a
+      // user hunting for it had to open "Search Wallet". Pin it first: it natively supports Robinhood Chain.
+      featuredWalletIds: ['a797aa35c0fadbfc1a53e7f675162ed5226968b44a19ee3d24385c64d1d3c393'],
       themeMode: 'dark',
       themeVariables: { '--w3m-accent': '#00C805', '--w3m-font-family': 'Manrope, system-ui, sans-serif', '--w3m-z-index': 100 },
     })
@@ -95,7 +98,7 @@ export async function connectWallet(via: 'injected' | 'walletconnect', linkToken
   if (via === 'injected') return signInWithWallet(linkToken)
   if (!walletConnectEnabled) throw new Error('WalletConnect is not set up yet. Try a browser wallet.')
   const provider = await connectWithModal()
-  return signInWithProvider(provider, { strictChain: false, linkToken })
+  return signInWithProvider(provider, { linkToken })
 }
 
 export async function disconnectWallet(): Promise<void> {

@@ -5,11 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.security import issue_jwt, new_token, sha256
+from app.core.security import issue_jwt, new_token
 from app.models import Subscription, User, Wallet
 from app.schemas.auth import TokenOut, UserOut, WalletOut
 from app.services import siwe
-from app.services.mailer import send_mail
 
 
 class AuthError(Exception):
@@ -17,26 +16,11 @@ class AuthError(Exception):
 
 
 class AuthService:
+    """Wallet-only auth: the wallet IS the account. There is no e-mail path."""
+
     def __init__(self, db: AsyncSession, redis: Redis):
         self.db, self.redis = db, redis
         self.s = get_settings()
-
-    # ---- magic link ----
-    async def send_magic_link(self, email: str) -> None:
-        token = new_token()
-        await self.redis.set(f"ml:{sha256(token)}", email.lower(), ex=self.s.magic_link_ttl_s)
-        link = f"{self.s.frontend_url}/auth/callback?token={token}"
-        await send_mail(email, "Your Chainfolio sign-in link",
-                        f"Tap to sign in:\n\n{link}\n\nThe link expires in {self.s.magic_link_ttl_s // 60} minutes.")
-
-    async def verify_magic_link(self, token: str) -> TokenOut:
-        email = await self.redis.getdel(f"ml:{sha256(token)}")  # single use
-        if not email:
-            raise AuthError("Link is invalid or expired")
-        user = (await self.db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-        if user is None:
-            user = await self._create_user(email=email)
-        return await self._login(user)
 
     # ---- SIWE ----
     async def siwe_nonce(self) -> str:
@@ -91,8 +75,8 @@ class AuthService:
         return await self._login(user)
 
     # ---- helpers ----
-    async def _create_user(self, email: str | None = None) -> User:
-        user = User(email=email)
+    async def _create_user(self) -> User:
+        user = User()
         self.db.add(user)
         await self.db.flush()
         self.db.add(Subscription(user_id=user.id, plan="free"))
@@ -107,5 +91,5 @@ class AuthService:
     async def user_out(self, user: User) -> UserOut:
         sub = (await self.db.execute(select(Subscription).where(Subscription.user_id == user.id))).scalar_one_or_none()
         wallets = (await self.db.execute(select(Wallet).where(Wallet.user_id == user.id))).scalars().all()
-        return UserOut(id=user.id, email=user.email, plan=sub.plan if sub else "free",
+        return UserOut(id=user.id, plan=sub.plan if sub else "free",
                        wallets=[WalletOut(address=w.address, kind=w.kind) for w in wallets])

@@ -4,7 +4,7 @@ export type Verdict = 'CLEAN' | 'RISKY' | 'DANGER' | 'UNKNOWN'
 export type Tone = 'ok' | 'warn' | 'bad' | 'unknown'
 
 export interface Wallet { address: string; kind: string }
-export interface User { id: number; email: string | null; plan: string; wallets: Wallet[] }
+export interface User { id: number; plan: string; wallets: Wallet[] }
 export interface TokenOut { access_token: string; token_type: string; user: User }
 
 export interface Holding {

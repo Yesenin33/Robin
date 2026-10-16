@@ -30,4 +30,3 @@ export const colorFor = (seed: string) => {
   return PALETTE[h % PALETTE.length]
 }
 
-export const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim())
