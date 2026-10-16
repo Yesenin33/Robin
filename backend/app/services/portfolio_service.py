@@ -73,6 +73,7 @@ class PortfolioService:
 
         holdings: list[Holding] = []
         excluded = 0
+        left_out: list[Holding] = []
         unverified: list[str] = []
         if native_raw:
             amt = native_raw / 1e18
@@ -91,9 +92,13 @@ class PortfolioService:
             h.liquidity_usd = float(t.liquidity_usd) if t.liquidity_usd is not None else None
             # Value you cannot take out is not value: a wallet holding 66 units of a token calling itself "ETH"
             # in a $2 055 pool was shown $161 609. The pool caps what any holder can realize, so such a row is
-            # left out of the list and the total; only the count is reported.
+            # kept OUT of the list and the total - but it is still reported in `excluded`, because hiding a
+            # balance the wallet really has is what makes the owner distrust the whole screen.
             if h.liquidity_usd is not None and h.value_usd > h.liquidity_usd:
                 excluded += 1
+                h.counted = False
+                h.not_counted_reason = "Left out: its pool can't pay out this price"
+                left_out.append(h)
                 continue
             if t.id is None or row is None:
                 unverified.append(t.address)
@@ -111,7 +116,8 @@ class PortfolioService:
         return PortfolioOut(
             address=address, total_usd=round(total, 2), change_24h_usd=round(change, 2),
             change_24h_pct=round(change / prev * 100, 2) if prev > 0 else 0.0,
-            holdings=holdings, excluded_count=excluded, not_counted_count=sum(1 for h in holdings if not h.counted and h.value_usd > 0),
+            holdings=holdings, excluded_count=excluded, excluded=left_out,
+            not_counted_count=sum(1 for h in holdings if not h.counted and h.value_usd > 0),
             updated_at=datetime.now(timezone.utc),
         )
 

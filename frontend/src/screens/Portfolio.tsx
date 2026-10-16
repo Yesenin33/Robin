@@ -6,7 +6,7 @@ import type { Holding } from '../api/types'
 import { EmptyState, ErrorState, Skeleton } from '../components/States'
 import { Avatar, toast } from '../components/ui'
 import { useAuth } from '../lib/auth'
-import { amount, signedPct, usd } from '../lib/format'
+import { amount, shortAddr, signedPct, usd } from '../lib/format'
 import { signInWithWallet } from '../lib/siwe'
 import { useAsync } from '../lib/useAsync'
 
@@ -60,8 +60,19 @@ function PortfolioView({ address }: { address: string }) {
 
   const up = p.change_24h_usd >= 0
   const notCounted = p.not_counted_count ?? 0
-  const clean = p.holdings.filter(h => h.counted !== false && h.verdict === 'CLEAN').length
-  const risky = p.holdings.filter(h => h.counted !== false && h.verdict === 'RISKY').length
+  const excludedCount = p.excluded_count ?? 0
+  // The glance card counts BADGES, not a partition: a row can be Risky and still be excluded from the
+  // total, and splitting those across two buckets is what made the card read "Risky 0" while two rows in
+  // the list right next to it carried a Risky badge.
+  const clean = p.holdings.filter(h => h.verdict === 'CLEAN').length
+  const risky = p.holdings.filter(h => h.verdict === 'RISKY' || h.verdict === 'DANGER').length
+  const outOfTotal = notCounted + excludedCount
+  // Several different contracts on this chain answer to the same symbol (the wallet holds four named USDG
+  // and two named AI). Without a distinguishing mark those rows are indistinguishable, which reads to the
+  // owner as "the count is wrong" - so any repeated symbol gets its short address shown.
+  const seen: Record<string, number> = {}
+  for (const h of p.holdings) { const k = (h.symbol || '?').toUpperCase(); seen[k] = (seen[k] ?? 0) + 1 }
+  const dup = (h: Holding) => (seen[(h.symbol || '?').toUpperCase()] ?? 0) > 1
 
   return (
     <div className="app-page">
@@ -96,16 +107,27 @@ function PortfolioView({ address }: { address: string }) {
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="label">Your holdings · {p.holdings.length}</div>
-            <div className="group">
-              {p.holdings.map(h => <HoldingRow key={h.token} h={h} />)}
+            <div className="label">
+              Your holdings · {p.holdings.length}
+              {excludedCount > 0 && <span style={{ color: 'var(--muted)' }}>{' · '}{excludedCount} left out</span>}
             </div>
+            <div className="group">
+              {p.holdings.map(h => <HoldingRow key={h.token} h={h} dup={dup(h)} />)}
+            </div>
+            {(p.excluded?.length ?? 0) > 0 && (
+              <details className="group" style={{ marginTop: 2 }}>
+                <summary className="label" style={{ cursor: 'pointer', padding: '12px 18px', listStyle: 'none' }}>
+                  Left out · {p.excluded!.length} — worth more on paper than its pool can pay
+                </summary>
+                {p.excluded!.map(h => <HoldingRow key={h.token} h={h} dup={false} />)}
+              </details>
+            )}
           </div>
         </div>
 
         <aside className="dark-card glance" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="serif" style={{ fontSize: 26, letterSpacing: '-.02em', lineHeight: 1.1 }}>Safety at a glance</div>
-          {[{ k: 'Clean', v: clean, c: '#0A8F0E' }, { k: 'Risky', v: risky, c: '#E59A18' }, { k: 'Not counted', v: notCounted, c: '#B9B3A6' }].map(g => (
+          {[{ k: 'Clean', v: clean, c: '#0A8F0E' }, { k: 'Risky', v: risky, c: '#E59A18' }, { k: 'Not counted', v: outOfTotal, c: '#B9B3A6' }].map(g => (
             <div key={g.k} style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 15 }}>
               <span style={{ width: 10, height: 10, borderRadius: '50%', background: g.c }} />
               <span style={{ flex: 1 }}>{g.k}</span>
@@ -121,7 +143,7 @@ function PortfolioView({ address }: { address: string }) {
   )
 }
 
-function HoldingRow({ h }: { h: Holding }) {
+function HoldingRow({ h, dup }: { h: Holding; dup: boolean }) {
   const native = h.token === 'native'
   const counted = h.counted !== false
   const tag = tagFor(h)
@@ -134,13 +156,17 @@ function HoldingRow({ h }: { h: Holding }) {
         <div style={{ fontWeight: 700, fontSize: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {h.symbol}{tag && <span className={`tag ${tag.cls}`}>{tag.label}</span>}
         </div>
-        <div style={{ color: 'var(--muted)', fontSize: 14, marginTop: 2 }}>{amount(h.amount)} {h.symbol}</div>
+        <div style={{ color: 'var(--muted)', fontSize: 14, marginTop: 2 }}>
+          {amount(h.amount)} {h.symbol}
+          {dup && !native && <span className="num" style={{ fontSize: 12, marginLeft: 8, color: 'var(--muted)' }}>{shortAddr(h.token)}</span>}
+        </div>
       </div>
       <div style={{ textAlign: 'right' }}>
         <div className="num" style={{ fontWeight: 700, fontSize: 16 }}>
           {h.price_usd == null ? '—' : counted ? usd(h.value_usd) : 'Not counted'}
         </div>
-        <div style={{ fontWeight: 600, fontSize: 14, marginTop: 2, color: !counted || h.price_usd == null || pct == null ? 'var(--muted)' : neg ? 'var(--red)' : 'var(--green-text)', maxWidth: 170 }}>
+        <div title={h.price_usd == null ? 'No price yet' : !counted ? (h.not_counted_reason ?? '') : undefined}
+          style={{ fontWeight: 600, fontSize: 14, marginTop: 2, maxWidth: 170, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: !counted || h.price_usd == null || pct == null ? 'var(--muted)' : neg ? 'var(--red)' : 'var(--green-text)' }}>
           {h.price_usd == null ? 'No price yet' : !counted ? (h.not_counted_reason ?? '') : pct == null ? '' : signedPct(pct)}
         </div>
       </div>

@@ -209,8 +209,12 @@ async def test_unrealizable_holding_is_left_out_entirely(db, redis):
     seen: list[str] = []
     svc = PortfolioService(db, redis, held_rpc({HOOD: 66 * 10**18}, seen), Market())
     p = await svc.get(OWNER)
-    assert p.holdings == [] and p.excluded_count == 1 and p.total_usd == 0  # no row, no fantasy number, counted
-    assert "161" not in p.model_dump_json()
+    assert p.holdings == [] and p.excluded_count == 1 and p.total_usd == 0  # no row in the list or the total
+    # ...but the row itself is REPORTED, because hiding a balance the wallet really has is what made the
+    # owner distrust the screen: he could see his token was missing and read it as a bug.
+    assert len(p.excluded) == 1 and p.excluded[0].symbol == "ETH"
+    assert p.excluded[0].counted is False and p.excluded[0].not_counted_reason
+    assert "161" not in f"{p.total_usd}"  # the fantasy price never reaches the headline
 
     tok = await db.get(Token, 1)
     tok.liquidity_usd = 10_000_000  # a pool that CAN pay out is counted normally

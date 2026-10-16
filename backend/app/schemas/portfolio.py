@@ -28,6 +28,8 @@ class PortfolioOut(BaseModel):
     holdings: list[Holding]
     # holdings worth more on paper than their pool can pay out: not listed, not counted - only how many
     excluded_count: int = 0
+    # the rows behind excluded_count, so the app can show WHAT was left out instead of only how many
+    excluded: list[Holding] = []
     # listed holdings that are not in total_usd because our own checks can't vouch they can be sold
     not_counted_count: int = 0
     updated_at: datetime

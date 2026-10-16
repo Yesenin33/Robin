@@ -7,8 +7,13 @@ export const usdCompact = (v: number) =>
 export const signedPct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
 
 export const amount = (v: number) => {
+  if (!Number.isFinite(v)) return '—'
+  if (v === 0) return '0'
   if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`
   if (v >= 1e3) return v.toLocaleString('en-US', { maximumFractionDigits: 0 })
+  // A balance the wallet really has must never render as a bare "0": 18-decimal dust rounds to zero at
+  // this precision, and "0 musebook" reads as a broken row rather than as a holding.
+  if (v < 1e-6) return '<0.000001'
   return v.toLocaleString('en-US', { maximumFractionDigits: v < 1 ? 6 : 2 })
 }
 

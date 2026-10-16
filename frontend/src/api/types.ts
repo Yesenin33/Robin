@@ -29,6 +29,7 @@ export interface Portfolio {
   change_24h_pct: number
   holdings: Holding[]
   excluded_count?: number  // holdings worth more on paper than their pool can pay out: not listed, not counted
+  excluded?: Holding[]  // the rows behind excluded_count, shown so the owner can see what was left out
   not_counted_count?: number  // listed, but our own checks can't vouch they can be sold: not in total_usd
   updated_at: string
 }
