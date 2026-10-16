@@ -11,6 +11,7 @@ from app.models import CopyEvent, CopyTarget, SafetyScore, SmartWallet, Token
 from app.services.chain_index import Trade
 from app.services.intelligence import contract
 from app.services.intelligence.rpc import Rpc
+from app.services.verdict_guard import effective_verdict
 
 RISK_TAG = {"CLEAN": "low", "RISKY": "medium", "DANGER": "high", "UNKNOWN": "medium"}
 VERDICT_TEXT = {
@@ -51,9 +52,9 @@ async def latest_safety(db: AsyncSession, token_ids: list[int]) -> dict[int, tup
         return {}
     last = (select(SafetyScore.token_id, func.max(SafetyScore.ts).label("ts"))
             .where(SafetyScore.token_id.in_(token_ids)).group_by(SafetyScore.token_id).subquery())
-    rows = await db.execute(select(SafetyScore.token_id, SafetyScore.verdict, SafetyScore.risks).join(
+    rows = await db.execute(select(SafetyScore.token_id, SafetyScore.verdict, SafetyScore.risks, SafetyScore.metrics).join(
         last, (SafetyScore.token_id == last.c.token_id) & (SafetyScore.ts == last.c.ts)))
-    return {tid: (v, r or []) for tid, v, r in rows.all()}
+    return {tid: (effective_verdict(v, m), r or []) for tid, v, r, m in rows.all()}
 
 
 async def ensure_tokens(db: AsyncSession, rpc: Rpc, addresses: set[str]) -> tuple[dict[str, Token], list[str]]:

@@ -58,9 +58,22 @@ def scan(address: str, chain: str = "robinhood", *, transport: Transport | None 
         r["total_supply"] = supply / 10 ** r["decimals"]
 
     def load_transfers():
+        problems = []
+        if cfg.explorer_api:  # the explorer indexes tokens whose Transfer logs eth_getLogs does not return
+            try:
+                got = holders.explorer_transfers(cfg, ca)
+                if got:
+                    sources.append("explorer-transfers")
+                    return got, False
+                problems.append("explorer returned no transfers")
+            except Exception as e:  # noqa: BLE001 — fall back to the node
+                problems.append(f"explorer: {e}")
         head = rpc.block_number()
         start = max(0, head - cfg.holder_scan_blocks)
-        return holders.parse_transfers(rpc.transfer_logs(ca, start, head, cfg.log_chunk)), start == 0
+        got = holders.parse_transfers(rpc.transfer_logs(ca, start, head, cfg.log_chunk))
+        if not got and problems:
+            raise RuntimeError("; ".join([*problems, "no transfer logs from the node"]))
+        return got, start == 0
 
     tr = stage("transfers", load_transfers)
     transfers, from_genesis = tr if tr else ([], False)
@@ -84,6 +97,10 @@ def scan(address: str, chain: str = "robinhood", *, transport: Transport | None 
             r.update(operators=ops["operators"], top_holder_pct=ops["top_holder_pct"],
                      real_hands_pct=ops["real_hands_pct"] if transfers else None, top_holders=ops["top_holders"],
                      whale_labels=ops["whale_labels"])
+
+    if not transfers and hd and (hd.count or 0) > 0 and not any(e.startswith("transfers:") for e in errors):
+        # holders exist but no transfer was read: that is a source gap, not an empty history
+        errors.append(f"transfers: the explorer lists {hd.count} holders but no transfers could be read")
 
     t = trading.analyze(transfers, r["pair_address"], ca)
     r["buy_tax"], r["sell_tax"], r["honeypot"] = t["buy_tax"], t["sell_tax"], t["honeypot"]

@@ -132,7 +132,7 @@ async def test_incomplete_result_is_not_cached_for_long_nor_served_from_db_outsi
         await db.commit()
         await redis.set(scan_job.cool_key(CA), "1", ex=60)
         served = await SafetyService(db, redis, engine2).get(CA)
-        assert engine2.calls == 0 and served.verdict == "RISKY"
+        assert engine2.calls == 0 and served.verdict == "UNKNOWN"  # no metrics behind the stored RISKY
 
 
 async def test_rank_skips_a_token_that_just_failed(appdb, redis, monkeypatch):

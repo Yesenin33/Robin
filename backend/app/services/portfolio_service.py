@@ -9,6 +9,7 @@ from app.models import Position, SafetyScore, Token
 from app.schemas.portfolio import Holding, PortfolioOut
 from app.services.market import MarketClient
 from app.services.rpc import RPCClient, norm
+from app.services.verdict_guard import effective_verdict
 
 NATIVE = "native"
 
@@ -104,11 +105,11 @@ class PortfolioService:
             .where(SafetyScore.token_id.in_(token_ids)).group_by(SafetyScore.token_id).subquery()
         )
         rows = await self.db.execute(
-            select(SafetyScore.token_id, SafetyScore.verdict).join(
+            select(SafetyScore.token_id, SafetyScore.verdict, SafetyScore.metrics).join(
                 latest, (SafetyScore.token_id == latest.c.token_id) & (SafetyScore.ts == latest.c.ts)
             )
         )
-        return dict(rows.all())
+        return {tid: effective_verdict(v, m) for tid, v, m in rows.all()}
 
     async def snapshot(self, address: str) -> int:
         """Persist current holdings as positions (for PnL). Returns rows written."""

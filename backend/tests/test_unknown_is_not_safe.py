@@ -123,3 +123,98 @@ def test_browser_sidecar_down_reports_the_source_failed_and_never_clean(monkeypa
     assert r["holders_count"] is None
     assert r["verdict"] == "UNKNOWN" and r["safety_score"] is None and r["verdict"] != "CLEAN"
     assert r["risks"][0].startswith("We couldn't check this token:")
+
+
+# ---- pre-launch fixes: explorer transfers, source gaps, legacy rows, "-0%" ----
+from app.schemas.safety import NO_VALUE  # noqa: E402
+from app.services.intelligence import holders  # noqa: E402
+from app.services.intelligence.config import get_chain  # noqa: E402
+from app.services.safety_service import build_metrics  # noqa: E402
+from app.services.verdict_guard import effective_verdict  # noqa: E402
+
+
+def test_no_metric_value_is_ever_minus_zero():
+    from tests.test_safety_service import report
+
+    for impact in (None, 0, 0.1, 0.4, 0.5, 0.9, 1.4, 55.5, 100):
+        for m in build_metrics(report(), impact):
+            assert m.value != "-0%"
+            assert "about 0%" not in m.hint
+    low = {m.key: m for m in build_metrics(report(), 0.3)}["top_holder_sell"]
+    assert (low.value, low.hint) == ("<1%", "Price barely moves")
+
+
+def test_explorer_transfers_are_paged_and_parsed(monkeypatch):
+    import app.services.intelligence.http as http
+
+    pages = {
+        "": {"items": [{"from": {"hash": "0xA"}, "to": {"hash": "0xB"}, "total": {"value": "5"},
+                        "transaction_hash": "0x1", "block_number": 9}], "next_page_params": {"block_number": 9}},
+        "block_number=9": {"items": [{"from": {"hash": "0xC"}, "to": {"hash": "0xD"}, "total": {"value": "7"},
+                                      "transaction_hash": "0x2", "block_number": 3},
+                                     {"from": None, "to": {"hash": "0xD"}, "total": None, "transaction_hash": "0x3"}],
+                           "next_page_params": None},
+    }
+    monkeypatch.setattr(holders, "get_json", lambda url, **k: pages[url.partition("?")[2]])
+    cfg = type("C", (), {"explorer_api": "https://x.test"})()
+    got = holders.explorer_transfers(cfg, "0xtoken")
+    assert [(t.block, t.frm, t.to, t.value) for t in got] == [(3, "0xc", "0xd", 7), (9, "0xa", "0xb", 5)]
+
+
+def test_missing_transfers_name_the_gap():
+    from tests.test_intelligence import FULL
+
+    r = {**FULL, "real_hands_pct": None, "errors": ["transfers: explorer lists 108 holders but none read"]}
+    a = assess(r)
+    assert a.verdict == "UNKNOWN" and "transfer history" in a.risks[0]
+
+
+def test_stored_clean_row_without_metrics_is_not_clean():
+    assert effective_verdict("CLEAN", {"items": []}) == "UNKNOWN"
+    assert effective_verdict("CLEAN", None) == "UNKNOWN"
+    dashes = {"items": [{"key": k, "value": NO_VALUE} for k in ("holders", "real_hands", "liquidity")]}
+    assert effective_verdict("RISKY", dashes) == "UNKNOWN"
+    ok = {"items": [{"key": k, "value": "5"} for k in ("holders", "real_hands", "liquidity")]}
+    assert effective_verdict("CLEAN", ok) == "CLEAN" and effective_verdict("DANGER", None) == "DANGER"
+
+
+def _explorer(monkeypatch, transfers):
+    intelligence.configure(explorer_api_url="https://explorer.test", explorer_proxy_prefix="")
+    holders_list = {"items": [{"address": {"hash": "0xb0", "is_contract": False}, "value": str(10 ** 18)}]}
+
+    def get(url, **k):
+        if url.endswith("/holders"):
+            return holders_list
+        if "/transfers" in url:
+            return {"items": transfers, "next_page_params": None}
+        return {"holders_count": "108"}
+
+    monkeypatch.setattr(holders, "get_json", get)
+
+
+def test_scan_reads_transfers_from_explorer_when_the_node_has_none(monkeypatch):
+    from tests.test_intelligence import E18, ZERO, P, T, B, Chain, bytecode, dexscreener
+
+    items = [{"from": {"hash": ZERO}, "to": {"hash": P}, "total": {"value": str(1000 * E18)},
+              "transaction_hash": "0xm", "block_number": 100}] + [
+        {"from": {"hash": P}, "to": {"hash": b}, "total": {"value": str(5 * E18)}, "transaction_hash": f"0xb{i}",
+         "block_number": 110 + i} for i, b in enumerate(B)]
+    _explorer(monkeypatch, items)
+    chain = Chain([], bytecode("a9059cbb"), owner=ZERO)  # eth_getLogs returns nothing, like V4-style tokens
+    r = intelligence.scan(T, transport=chain, fetch=dexscreener(liq=2_000_000, fdv=1_000_000, site=True))
+    assert r["real_hands_pct"] is not None and "explorer-transfers" in r["sources"]
+    assert not any(e.startswith("transfers:") for e in r["errors"])
+
+
+def test_holders_without_any_transfers_is_a_named_source_gap(monkeypatch):
+    from tests.test_intelligence import T, Chain, bytecode, dexscreener
+
+    _explorer(monkeypatch, [])
+    chain = Chain([], bytecode("a9059cbb"), owner=ZERO_ADDR)
+    r = intelligence.scan(T, transport=chain, fetch=dexscreener(liq=2_000_000, fdv=1_000_000, site=True))
+    assert any(e.startswith("transfers:") for e in r["errors"])
+    assert r["real_hands_pct"] is None and r["verdict"] == "UNKNOWN"
+    assert "transfer history" in r["risks"][0]
+
+
+ZERO_ADDR = "0x" + "0" * 40

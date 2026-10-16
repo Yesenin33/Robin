@@ -7,6 +7,7 @@ from app.services.intelligence.http import get_json
 from app.services.intelligence.rpc import Rpc, to_int, topic_addr
 
 MAX_CANDIDATES = 3000
+EXPLORER_TRANSFER_PAGES = 20  # 50 per page, newest first
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,32 @@ def parse_transfers(logs: list[dict]) -> list[Transfer]:
             continue
         out.append(Transfer(to_int(lg["blockNumber"]), lg["transactionHash"], topic_addr(t[1]), topic_addr(t[2]),
                             to_int(lg.get("data"))))
+    out.sort(key=lambda x: x.block)
+    return out
+
+
+def explorer_transfers(cfg: ChainConfig, token: str, pages: int = EXPLORER_TRANSFER_PAGES) -> list[Transfer]:
+    """ERC-20 transfers as the explorer indexed them. eth_getLogs can return nothing for tokens the explorer
+    still has (V4-style tokens), so this is the primary source and the RPC log scan is the fallback."""
+    base = cfg.explorer_api.rstrip("/")
+    out: list[Transfer] = []
+    params = None
+    for _ in range(pages):
+        url = f"{base}/api/v2/tokens/{token}/transfers"
+        if params:
+            url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
+        page = get_json(url)
+        for it in page.get("items", []):
+            frm = ((it.get("from") or {}).get("hash") or "").lower()
+            to = ((it.get("to") or {}).get("hash") or "").lower()
+            tx = it.get("transaction_hash") or it.get("tx_hash")
+            value = (it.get("total") or {}).get("value")
+            if not (frm and to and tx) or value is None:
+                continue  # NFT-style or malformed row
+            out.append(Transfer(int(it.get("block_number") or 0), tx, frm, to, int(value)))
+        params = page.get("next_page_params")
+        if not params:
+            break
     out.sort(key=lambda x: x.block)
     return out
 

@@ -34,7 +34,8 @@ def evidence_gaps(r: dict) -> list[str]:
     if r.get("holders_count") is None:
         gaps.append("holder data")
     elif r.get("top_holder_pct") is None or r.get("real_hands_pct") is None:
-        gaps.append("holder breakdown")  # we know how many holders, not who they are or whether they are linked
+        # holders are known but who they are needs the transfers: name the missing piece
+        gaps.append("transfer history" if failed("transfers") else "holder breakdown")  # we know how many holders, not who they are or whether they are linked
     if failed("meta", "security"):
         gaps.append("contract details")
     return gaps

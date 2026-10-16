@@ -70,7 +70,9 @@ async def test_follow_backfills_from_explorer_then_collects_live(client, signed_
 
     async with appdb() as db:
         db.add(SafetyScore(token_id=(await db.execute(select(Token.id))).scalar_one(), score=55, verdict="RISKY",
-                           risks=["A few wallets hold a big share."], metrics={}))
+                           risks=["A few wallets hold a big share."],
+                           metrics={"items": [{"key": k, "label": k, "emoji": "x", "value": "1", "tone": "ok", "hint": "h"}
+                                              for k in ("holders", "real_hands", "liquidity")]}))
         await db.commit()
         alerts = (await db.execute(select(Alert))).scalars().all()
     # history (backfill) is silent; the live trade alerts the follower

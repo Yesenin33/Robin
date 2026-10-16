@@ -18,6 +18,7 @@ from app.services.intelligence import ScanUnavailable
 from app.services.intelligence.http import set_priority
 from app.services.intelligence.scoring import assess, sell_impact_pct
 from app.services.rpc import norm
+from app.services.verdict_guard import effective_verdict, missing_metrics
 
 log = get_logger(__name__)
 
@@ -70,10 +71,11 @@ def build_metrics(r: ScanReport, impact: float | None) -> list[Metric]:
     m.append(Metric(key="real_hands", label="Real hands", emoji="✋", value=f"{rh:.0f}%" if rh is not None else NO_VALUE,
                     tone=rh_tone, hint=rh_hint))
     it = NA if impact is None else OK if impact < 20 else WARN if impact < 70 else BAD
+    imp = None if impact is None else max(0, round(impact))  # round first, then clamp: never "-0%"
     m.append(Metric(key="top_holder_sell", label="If top holder sells", emoji="📉",
-                    value=f"-{impact:.0f}%" if impact is not None else NO_VALUE, tone=it,
-                    hint=(NO_DATA if impact is None else "Price could nearly vanish" if it == BAD
-                          else f"Price could drop about {impact:.0f}%")))
+                    value=NO_VALUE if imp is None else (f"-{imp}%" if imp > 0 else "<1%"), tone=it,
+                    hint=(NO_DATA if imp is None else "Price could nearly vanish" if it == BAD
+                          else f"Price could drop about {imp}%" if imp >= 1 else "Price barely moves")))
     liq = r.liquidity_usd
     lt = NA if liq is None else OK if liq >= 500_000 else WARN if liq >= 20_000 else BAD
     m.append(Metric(key="liquidity", label="Liquidity", emoji="💧", value=_money(liq) if liq is not None else NO_VALUE,
@@ -198,11 +200,19 @@ class SafetyService:
         # an incomplete row (dashes) is only served while the token is in backoff; otherwise re-scan it
         if max_age and score.metrics.get("incomplete") and not await self.redis.exists(f"scan:cool:{ca}"):
             return None
+        verdict, risks, summary, sc = score.verdict, list(score.risks or []), None, score.score
+        if effective_verdict(verdict, score.metrics) != verdict:  # optimistic legacy row: metrics are missing
+            gone = ", ".join(missing_metrics(score.metrics)).replace("_", " ")
+            verdict, sc, summary = UNKNOWN, None, SUMMARY[UNKNOWN]
+            risks = [f"We couldn't check this token: {gone} unavailable.", *risks]
+            if max_age and not await self.redis.exists(f"scan:cool:{ca}"):
+                return None  # re-scan it under the current rules instead of serving the old claim
         return SafetyOut(
-            address=ca, symbol=token.symbol, name=token.name, score=score.score, verdict=score.verdict,
-            swarm_verdict=score.swarm_verdict, summary=score.metrics.get("summary", SUMMARY[score.verdict]),
-            risks=score.risks, metrics=[Metric(**m) for m in score.metrics.get("items", [])],
-            buy_recommended=score.verdict in (CLEAN, RISKY),
+            address=ca, symbol=token.symbol, name=token.name, score=sc if verdict == UNKNOWN else score.score,
+            verdict=verdict, swarm_verdict=score.swarm_verdict,
+            summary=summary or score.metrics.get("summary", SUMMARY[score.verdict]),
+            risks=risks, metrics=[Metric(**m) for m in score.metrics.get("items", [])],
+            buy_recommended=verdict in (CLEAN, RISKY),
             price_usd=float(token.price_usd) if token.price_usd is not None else None, scanned_at=ts,
             holders_stale_at=score.metrics.get("holders_stale_at"),
         )
