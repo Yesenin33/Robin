@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
+import { Logo } from '../components/Logo'
 import { WalletConnectPanel } from '../components/WalletConnect'
 import { useAuth } from '../lib/auth'
 import { insideTelegram } from '../lib/wallet'
@@ -18,21 +19,20 @@ export function ConnectGate() {
   }, [refresh])
 
   return (
-    <div className="page">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 24 }}>
-        <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-.02em' }}>Connect a wallet to continue</div>
-        <div style={{ color: 'var(--muted)', fontSize: 15, lineHeight: 1.5 }}>
-          Your wallet is your Chainfolio account — it shows your portfolio and keeps your alerts.
+    <div className="page" style={{ minHeight: '100dvh', padding: '28px 20px' }}>
+      <Link to="/" style={{ alignSelf: 'center', textDecoration: 'none' }}><Logo size={32} /></Link>
+      <div style={{ margin: 'auto', width: '100%', maxWidth: 440, display: 'flex', flexDirection: 'column', gap: 24, padding: '32px 0' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, textAlign: 'center' }}>
+          <div className="serif" style={{ fontSize: 42, lineHeight: 1.05, letterSpacing: '-.03em' }}>Connect a wallet to continue</div>
+          <div style={{ color: 'var(--body)', fontSize: 16, lineHeight: 1.5 }}>
+            Your wallet is your Chainfolio account. It shows your portfolio and keeps your alerts.
+          </div>
         </div>
-      </div>
-      <WalletConnectPanel onConnected={login} />
-      <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'center' }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', color: 'var(--muted-2)', fontSize: 13, lineHeight: 1.5 }}>
-          <span>🔒</span><span>Only you can move your money. We can never touch it.</span>
+        <WalletConnectPanel onConnected={login} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'center', marginTop: 8 }}>
+          <div style={{ color: 'var(--muted)', fontSize: 14, lineHeight: 1.5 }}>Only you can move your money. We can never touch it.</div>
+          <button onClick={() => { logout(); nav('/') }} style={{ background: 'none', border: 0, color: 'var(--muted)', fontSize: 14, fontWeight: 600, padding: 8, minHeight: 44 }}>Sign out</button>
         </div>
-        <button onClick={() => { logout(); nav('/') }} style={{ background: 'none', border: 0, color: 'var(--muted-2)', fontSize: 13 }}>
-          Sign out
-        </button>
       </div>
     </div>
   )

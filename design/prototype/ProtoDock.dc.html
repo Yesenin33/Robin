@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="position:fixed;right:16px;bottom:{{ bottom }};z-index:30;display:flex;flex-direction:column;align-items:flex-end;gap:8px;font-family:'Albert Sans',system-ui,sans-serif">
+  <sc-if value="{{ open }}" hint-placeholder-val="{{ false }}">
+    <div style="background:#110E08;color:#F7F5EF;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:10px;width:288px;box-shadow:0 20px 50px rgba(17,14,8,.35)">
+      <div style="font-size:12px;font-weight:600;color:#B9B3A6">Pages</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <sc-for list="{{ pages }}" as="p" hint-placeholder-count="7"><a href="{{ p.href }}" style="height:34px;padding:0 12px;border-radius:99px;background:{{ p.bg }};color:{{ p.fg }};font-weight:600;font-size:13px;display:inline-flex;align-items:center;text-decoration:none">{{ p.label }}</a></sc-for>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:#B9B3A6">State of this page</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <sc-for list="{{ states }}" as="s" hint-placeholder-count="4"><a href="{{ s.href }}" style="height:34px;padding:0 12px;border-radius:99px;background:{{ s.bg }};color:{{ s.fg }};font-weight:600;font-size:13px;display:inline-flex;align-items:center;text-decoration:none">{{ s.label }}</a></sc-for>
+      </div>
+    </div>
+  </sc-if>
+  <button onClick="{{ toggle }}" style="height:40px;padding:0 16px;border-radius:99px;border:0;background:#110E08;color:#CCFF00;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;box-shadow:0 8px 24px rgba(17,14,8,.3)">{{ label }}</button>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;page&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Landing&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { open: false, w: window.innerWidth };
+  componentDidMount() { this.rs = () => this.setState({ w: window.innerWidth }); window.addEventListener('resize', this.rs); }
+  componentWillUnmount() { window.removeEventListener('resize', this.rs); }
+  renderVals() {
+    const cur = this.props.page, app = ['Portfolio', 'Safety', 'Copy', 'Profile'].includes(cur);
+    const q = new URLSearchParams(window.location.search), st = q.get('state') || 'ready';
+    const P = [['Landing', 'Landing'], ['Login', 'Login'], ['Connect', 'Connect gate'], ['Portfolio', 'Portfolio'], ['Safety', 'Safety'], ['Copy', 'Copy'], ['Profile', 'Profile']];
+    const pages = P.map(([f, l]) => ({ label: l, href: f + '.dc.html', bg: cur === f ? '#CCFF00' : 'rgba(255,255,255,.1)', fg: cur === f ? '#110E08' : '#F7F5EF' }));
+    const states = [['ready', 'Ready'], ['loading', 'Loading'], ['empty', 'Empty'], ['error', 'Error']].map(([k, l]) => { const p = new URLSearchParams(window.location.search); p.set('state', k); return { label: l, href: '?' + p.toString(), bg: st === k ? '#CCFF00' : 'rgba(255,255,255,.1)', fg: st === k ? '#110E08' : '#F7F5EF' }; });
+    return { pages, states, open: this.state.open, toggle: () => this.setState({ open: !this.state.open }), label: this.state.open ? 'Close' : 'Prototype', bottom: app && this.state.w < 1024 ? '104px' : '16px' };
+  }
+}
+
+</script>
+</body>
+</html>

@@ -38,7 +38,7 @@ curl -s https://212.113.101.238.nip.io/api/health
 - `backend/app/services/intelligence/` — the token analytics engine (stdlib-only, `scan(address, chain) -> dict`).
 - `backend/app/services/safety_service.py` — scan orchestration, cache, verdict; `app/jobs/` — the worker.
 - `frontend/src/screens/` — Landing, Onboarding, Portfolio, Safety, Copy, Profile; `frontend/src/styles.css`
-  is the whole visual system today; `Chainfolio.dc.html` is the design source.
+  is the visual system, implemented from the prototype in `design/prototype/` (see frontend/README.md).
 - The owner reviews on a phone: check UI work in a 390x844 viewport.
 
 ## Open work

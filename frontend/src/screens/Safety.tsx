@@ -3,21 +3,21 @@ import { useNavigate, useParams } from 'react-router-dom'
 
 import { api, isQueued } from '../api/client'
 import type { Metric, Safety as SafetyT, Verdict } from '../api/types'
-import { EmptyState, ErrorState, ProgressState } from '../components/States'
+import { ProgressState } from '../components/States'
 import { SwapSheet } from '../components/SwapSheet'
 import { Avatar, toast } from '../components/ui'
 import { ago, isAddress, shortAddr } from '../lib/format'
 import { loadRecent, saveRecent } from '../lib/recent'
 import { swapUrl } from '../lib/swap'
 
-const VERDICT: Record<Verdict, { vc: string; vt: string; soft: string; icon: string }> = {
-  CLEAN: { vc: 'var(--green)', vt: 'var(--green-ink)', soft: 'var(--green-soft)', icon: '✓' },
-  RISKY: { vc: 'var(--amber)', vt: 'var(--amber-ink)', soft: 'var(--amber-soft)', icon: '!' },
-  DANGER: { vc: 'var(--red)', vt: 'var(--on-red)', soft: 'var(--red-soft)', icon: '✕' },
-  // neutral grey on purpose: "we couldn't check" must never look like a result, least of all a green one
-  UNKNOWN: { vc: 'var(--muted-2)', vt: 'var(--bg)', soft: 'var(--card)', icon: '?' },
+const VERDICT: Record<Verdict, { word: string; soft: string; ink: string; dot: string }> = {
+  CLEAN: { word: 'Clean', soft: '#E4F6DD', ink: '#0D3B10', dot: '#0A8F0E' },
+  RISKY: { word: 'Risky', soft: '#FFEFCC', ink: '#4A2C00', dot: '#C77700' },
+  DANGER: { word: 'Danger', soft: '#FCE6E2', ink: '#5E120C', dot: '#C8281E' },
+  // neutral on purpose: "we couldn't check" must never look like a result, least of all a green one
+  UNKNOWN: { word: 'Unknown', soft: '#ECE9E1', ink: '#110E08', dot: '#5E594E' },
 }
-const TONE = { ok: 'var(--text)', warn: 'var(--amber-text)', bad: 'var(--red-text)', unknown: 'var(--muted-2)' }
+const TONE = { ok: 'var(--ink)', warn: 'var(--amber-text)', bad: 'var(--red)', unknown: 'var(--muted)' }
 
 const sleep = (ms: number, signal: AbortSignal) => new Promise<void>(res => {
   const t = setTimeout(res, ms)
@@ -52,26 +52,37 @@ export function Safety() {
   const recent = loadRecent()
   const input = useRef<HTMLInputElement>(null)
   const go = (a: string) => nav(`/app/safety/${a.trim().toLowerCase()}`)
+  const showing = !!ca && isAddress(ca)
 
   return (
     <div className="app-page">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <h1 className="display">Is this token safe?</h1>
+        <div className="lead">Paste a token address. We check holders, liquidity and who can sell, in plain words.</div>
+      </div>
       <AddressBar onSubmit={go} inputRef={input} />
       {recent.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div className="t-caption">Recently checked</div>
+          <div className="t-caption">Recently checked · a name isn't an identifier, so check the address</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {recent.map(t => (
               <button key={t.ca} className={`chip ${t.ca === ca?.toLowerCase() ? 'on' : ''}`} onClick={() => go(t.ca)}>
-                <b>{t.sym}</b><small className="num">{shortAddr(t.ca)}</small>
+                <b>{t.sym}</b><small>{shortAddr(t.ca)} · {ago(new Date(t.ts).toISOString())}</small>
               </button>
             ))}
           </div>
         </div>
       )}
-      {ca && isAddress(ca)
-        ? <SafetyView key={ca} ca={ca.toLowerCase()} onLeave={() => nav('/app/safety')} />
-        : <EmptyState emoji="🛡️" title="Nothing to check yet" body="Paste a token address and we'll tell you if it looks safe."
-            cta="Paste address" onCta={() => void pasteFromClipboard(go, input.current)} />}
+      {showing
+        ? <SafetyView key={ca} ca={ca!.toLowerCase()} onLeave={() => nav('/app/safety')} />
+        : (
+          <div style={{ padding: '32px 0', color: 'var(--body)', fontSize: 16, lineHeight: 1.5 }}>
+            <b style={{ color: 'var(--ink)' }}>Nothing to check yet.</b> Paste an address above, or pick one you checked before.
+            <div style={{ marginTop: 16 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => void pasteFromClipboard(go, input.current)}>Paste address</button>
+            </div>
+          </div>
+        )}
     </div>
   )
 }
@@ -102,10 +113,10 @@ function AddressBar({ onSubmit, inputRef }: { onSubmit: (a: string) => void; inp
         onChange={e => setV(e.target.value)} spellCheck={false} autoCapitalize="off" autoCorrect="off" inputMode="text"
         aria-label="Token address" />
       {v.trim() === '' && (
-        <button type="button" className="btn btn-ghost" style={{ padding: '0 14px', fontSize: 14 }}
+        <button type="button" className="btn btn-ghost" style={{ padding: '0 20px', fontSize: 15 }}
           onClick={() => void pasteFromClipboard(onSubmit, inputRef.current)}>Paste</button>
       )}
-      <button type="submit" className="btn btn-primary" style={{ padding: '0 18px', fontSize: 15 }}>Check</button>
+      <button type="submit" className="btn btn-primary" style={{ padding: '0 26px', fontSize: 15 }}>Check</button>
     </form>
   )
 }
@@ -151,59 +162,67 @@ function SafetyView({ ca, onLeave }: { ca: string; onLeave: () => void }) {
       elapsedS={w.elapsedS} onCancel={() => { ctl.current?.abort(); onLeave() }} />
   }
   if (view.status === 'error') {
-    return <ErrorState body="We couldn't run the safety check." onRetry={() => setRun(n => n + 1)} />
+    return (
+      <div className="notice-error" role="alert" style={{ borderRadius: 20, padding: 20, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
+        <div><b>We couldn't run the safety check.</b> Nothing was bought or sold. Try again in a moment.</div>
+        <button className="btn btn-primary btn-sm" onClick={() => setRun(n => n + 1)}>Try again</button>
+      </div>
+    )
   }
   const s = view.data
   const v = VERDICT[s.verdict]
-  const extra = s.risks.filter(r => !s.summary.includes(r)) // summary already quotes the top risks
-
-  const trade = (side: 'buy' | 'sell') => setSwap(side)
+  const extra = s.risks.filter(r => !s.summary.includes(r)) // the summary already quotes the top risks
+  const canBuy = s.verdict === 'CLEAN' || s.verdict === 'RISKY'
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        <Avatar seed={ca} letter={s.symbol ?? '?'} size={52} image={s.image_url} />
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 22, fontWeight: 800 }}>{s.name ?? s.symbol ?? 'Unknown token'}</div>
-          <button className="num" onClick={() => { void navigator.clipboard?.writeText(ca); toast('Address copied') }}
-            style={{ background: 'none', border: 0, padding: 0, fontSize: 13, color: 'var(--muted-2)', marginTop: 2 }}>
-            {shortAddr(ca)} · tap to copy
-          </button>
+      {s.refreshing && <div className="notice" role="status">Showing the check from {ago(s.scanned_at)}. A fresh one is running…</div>}
+      <div className="grid-safety">
+        <div className="stack">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <Avatar seed={ca} letter={s.symbol ?? '?'} size={52} image={s.image_url} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{s.name ?? s.symbol ?? 'Unknown token'}</div>
+              <button className="num" onClick={() => { void navigator.clipboard?.writeText(ca); toast('Address copied') }}
+                style={{ background: 'none', border: 0, padding: 0, fontSize: 14, color: 'var(--muted)', marginTop: 2, minHeight: 24 }}>
+                {shortAddr(ca)} · tap to copy
+              </button>
+            </div>
+          </div>
+          <div style={{ borderRadius: 28, padding: 28, background: v.soft, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ width: 14, height: 14, borderRadius: '50%', background: v.dot, flex: 'none' }} />
+              <span className="serif" style={{ fontSize: 56, lineHeight: 1, letterSpacing: '-.03em', color: v.ink }}>{v.word}</span>
+              <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, letterSpacing: '.08em', padding: '6px 12px', borderRadius: 99, background: v.dot, color: '#fff' }}>{s.verdict}</span>
+            </div>
+            <div style={{ fontSize: 18, lineHeight: 1.45, fontWeight: 500, color: v.ink }}>{s.summary}</div>
+            {extra.length > 0 && (
+              <ul style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 15, lineHeight: 1.45, color: v.ink }}>
+                {extra.map(r => <li key={r}>{r}</li>)}
+              </ul>
+            )}
+          </div>
         </div>
-      </div>
 
-      {s.refreshing && <div className="notice col-12" role="status">Showing the check from {ago(s.scanned_at)}. A fresh one is running…</div>}
-      <div className="col-7" style={{ borderRadius: 24, padding: 22, background: v.soft, boxShadow: `inset 0 0 0 1px ${v.vc}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: 8, background: v.vc, color: v.vt, fontWeight: 800, fontSize: 18, letterSpacing: '.08em', padding: '8px 16px', borderRadius: 99 }}>
-          {v.icon} {s.verdict}
+        <div className="stack" style={{ gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {s.metrics.map(m => <MetricCard key={m.key} m={m} />)}
+          </div>
+          {(s.holders_stale_at || s.stale) && (
+            <div className="t-caption" style={{ fontWeight: 500 }}>
+              {s.holders_stale_at ? `Holder numbers are from ${ago(s.holders_stale_at)}. We refresh them in the background.`
+                : "We couldn't refresh this just now, so this is the previous check."}
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {/* no filled call to action when we couldn't check the token or it looks like a scam */}
+            <button className={`btn ${canBuy ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSwap('buy')}>Buy</button>
+            <button className="btn btn-ghost" onClick={() => setSwap('sell')}>Sell</button>
+          </div>
+          {s.verdict === 'DANGER' && <div className="t-caption" style={{ textAlign: 'center', fontWeight: 500 }}>Buying this one is not recommended.</div>}
+          {s.verdict === 'UNKNOWN' && <div className="t-caption" style={{ textAlign: 'center', fontWeight: 500 }}>Unknown is not the same as safe.</div>}
+          {s.verdict === 'RISKY' && <div className="t-caption" style={{ textAlign: 'center', fontWeight: 500 }}>Think about the amount before you buy.</div>}
         </div>
-        <div style={{ fontSize: 17, lineHeight: 1.45, fontWeight: 600 }}>{s.summary}</div>
-        {extra.length > 0 && (
-          <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--text-2)', fontSize: 14, lineHeight: 1.5 }}>
-            {extra.map(r => <li key={r}>{r}</li>)}
-          </ul>
-        )}
-      </div>
-
-      <div className="col-5 sticky" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        {s.metrics.map(m => <MetricCard key={m.key} m={m} />)}
-      </div>
-      {(s.holders_stale_at || s.stale) && (
-        <div style={{ fontSize: 12, color: 'var(--muted-2)', textAlign: 'center', lineHeight: 1.4 }}>
-          {s.holders_stale_at ? `Holder numbers are from ${ago(s.holders_stale_at)} — we'll update them shortly.`
-            : "We couldn't refresh this just now, so this is the previous check."}
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 4 }}>
-        {/* no green call to action when we couldn't check the token */}
-        <button className={`btn ${s.verdict === 'UNKNOWN' ? 'btn-ghost' : 'btn-primary'}`} style={{ height: 54, fontWeight: 800 }}
-          onClick={() => trade('buy')}>Buy</button>
-        <button className="btn btn-ghost" style={{ height: 54, fontWeight: 800 }} onClick={() => trade('sell')}>Sell</button>
-      </div>
-      {s.verdict === 'DANGER' && <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--red-text)' }}>Buying this one is not recommended.</div>}
-      {s.verdict === 'UNKNOWN' && <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--muted-2)' }}>We couldn't check this one — don't treat it as safe.</div>}
       </div>
       {swap && <SwapSheet side={swap} safety={s} onClose={() => setSwap(null)} fallbackUrl={swapUrl(ca, swap)} />}
     </>
@@ -213,10 +232,10 @@ function SafetyView({ ca, onLeave }: { ca: string; onLeave: () => void }) {
 function MetricCard({ m }: { m: Metric }) {
   const color = m.tone === 'ok' && m.key === 'real_hands' ? 'var(--green-text)' : TONE[m.tone] ?? TONE.unknown
   return (
-    <div className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{ fontSize: 12, color: 'var(--muted-2)', fontWeight: 600 }}>{m.label}</div>
-      <div className="num" style={{ fontSize: 24, fontWeight: 800, color }}>{m.value} <span style={{ fontSize: 16 }}>{m.emoji}</span></div>
-      <div style={{ fontSize: 12, color: 'var(--muted-2)', lineHeight: 1.35 }}>{m.hint}</div>
+    <div className="card" style={{ borderRadius: 20, padding: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div className="t-caption">{m.label}</div>
+      <div className="num" style={{ fontSize: 28, fontWeight: 600, letterSpacing: '-.03em', color }}>{m.value}</div>
+      <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.4 }}>{m.hint}</div>
     </div>
   )
 }

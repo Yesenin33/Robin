@@ -19,8 +19,8 @@ export function Avatar({ seed, letter, size = 44, color, image }: { seed: string
 
 export function Toggle({ on }: { on: boolean }) {
   return (
-    <div className="toggle" style={{ background: on ? 'var(--green)' : 'var(--line-2)' }} role="switch" aria-checked={on}>
-      <i style={{ left: on ? 23 : 3 }} />
+    <div className="toggle" style={{ background: on ? 'var(--ink)' : 'var(--line-2)' }} role="switch" aria-checked={on}>
+      <i style={{ left: on ? 23 : 3, background: on ? 'var(--lime)' : '#fff' }} />
     </div>
   )
 }

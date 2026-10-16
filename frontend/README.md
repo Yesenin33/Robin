@@ -42,16 +42,20 @@ PWA: `public/manifest.webmanifest` + `public/sw.js` (app-shell cache, API never 
 
 ## Design system and source of truth
 
-`src/styles.css` is the source of truth (tokens at the top). Direction: Robinhood's own look — light, calm, one green
-(`#00C805`), near-black type, soft cards, hairlines instead of borders. The exact colours were **not** sampled from
-robinhood.com (no network in the build environment); neutrals are chosen to match that feel and to meet contrast
-(muted text >= 4.5:1). Dark is the same token set, opt-in under Profile -> Appearance (`[data-theme="dark"]`).
-Scales: radius 8/12/16/24/99, elevation `--elev-1..3`, type `.t-display/.t-title/.t-body/.t-caption`, motion 180 ms
-ease-out, `prefers-reduced-motion` honoured, focus rings, 44 px hit areas. `../Chainfolio.dc.html` is the original dark
-mock and is **not** kept in sync.
+The look comes from the design prototype in `../design/prototype/*.dc.html` (open them in a browser; they link to each
+other). `src/styles.css` is its implementation and the source of truth for the product: warm paper `#F7F5EF`, ink
+`#110E08`, one lime accent `#CCFF00` used as a highlight (active tab pill, toggle knob, sidebar icon) and never as text
+on paper, white hairline cards, pill buttons (ink = primary, outlined = secondary), Newsreader (serif) for display and
+Albert Sans for UI. Verdict colours: clean `#E4F6DD`/`#0A8F0E`, risky `#FFEFCC`/`#C77700`, danger `#FCE6E2`/`#C8281E`,
+unknown `#ECE9E1`. There is no dark theme.
 
-Layout: < 768 px phone (bottom tabs); 768-1023 tablet (top nav, 720 px column); >= 1024 desktop (top nav, 1120 px
-12-column grid via `.col-*`). Every confirmation uses `components/Sheet.tsx` (the swap sheet included).
+Layout: < 1024 px one column with a bottom tab bar (lime pill on the active tab); >= 1024 px a dark 248 px sidebar and
+a 1080 px content grid. Every confirmation uses `components/Sheet.tsx` (bottom sheet on phones, centred modal on
+desktop; rendered in a portal so it sits above the tab bar).
+
+Deliberate differences from the prototype: the portfolio has no decorative sparkline (we have no price history, so a
+line would be a number we cannot stand behind); the landing ticker is labelled "Demo"; progress shows the five real scan
+stages the server reports, not three invented ones.
 
 Brand: `public/mark.svg` is the mark; `python3 scripts/make_icons.py` regenerates favicon.ico/svg, apple-touch-icon,
 192/512 and maskable icons and the 1200x630 `og.png`. `VITE_PUBLIC_URL` (see `.env.production`) makes `og:image` absolute.

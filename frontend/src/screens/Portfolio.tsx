@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { api } from '../api/client'
 import type { Holding } from '../api/types'
@@ -27,20 +27,20 @@ export function Portfolio() {
   return <PortfolioView address={address} />
 }
 
-function PortfolioView({ address }: { address: string }) {
-  const nav = useNavigate()
-  const { state, reload } = useAsync(() => api.portfolio(address), [address])
-  const [pulling, setPulling] = useState(false)
-  const y0 = useRef(0)
+function tagFor(h: Holding): { label: string; cls: string } | null {
+  if (h.token === 'native') return null
+  if (h.verdict === 'DANGER') return { label: 'Danger', cls: 'danger' }
+  if (h.verdict === 'RISKY') return { label: 'Risky', cls: 'risky' }
+  if (h.verdict === 'UNKNOWN') return { label: 'Unknown', cls: '' }
+  if (!h.verdict && h.value_usd > 0) return { label: 'Unchecked', cls: '' }
+  return null
+}
 
-  const onUp = async (y: number, el: HTMLElement) => {
-    const scroller = el.closest('.scroll')
-    if (y - y0.current > 60 && (scroller?.scrollTop ?? 0) === 0) {
-      setPulling(true)
-      await reload(true)
-      setPulling(false)
-    }
-  }
+function PortfolioView({ address }: { address: string }) {
+  const { state, reload } = useAsync(() => api.portfolio(address), [address])
+  const [refreshing, setRefreshing] = useState(false)
+
+  const refresh = async () => { setRefreshing(true); await reload(true); setRefreshing(false) }
 
   if (state.status === 'loading') return <div className="app-page"><Skeleton /></div>
   if (state.status === 'error' && !state.data) {
@@ -53,76 +53,101 @@ function PortfolioView({ address }: { address: string }) {
       <div className="app-page">
         <EmptyState emoji="🪙" title="No holdings yet" body="Send tokens to your address to get started. We'll check they're safe first."
           cta="Copy my address" onCta={() => { void navigator.clipboard?.writeText(address); toast('Address copied') }} />
+        <div className="num" style={{ textAlign: 'center', fontSize: 14, color: 'var(--muted)', wordBreak: 'break-all' }}>{address}</div>
       </div>
     )
   }
 
   const up = p.change_24h_usd >= 0
+  const notCounted = p.not_counted_count ?? 0
+  const clean = p.holdings.filter(h => h.counted !== false && h.verdict === 'CLEAN').length
+  const risky = p.holdings.filter(h => h.counted !== false && h.verdict === 'RISKY').length
+
   return (
-    <div className="app-page" onPointerDown={e => { y0.current = e.clientY }} onPointerUp={e => void onUp(e.clientY, e.currentTarget)}>
-      <div className="pull-hint" style={{ display: 'flex', justifyContent: 'center', fontSize: 12, color: 'var(--faint)', height: 16, marginTop: -8 }}>
-        {pulling ? 'Refreshing…' : '↓ Pull down to refresh'}
-      </div>
-      <div className="col-4 sticky" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div style={{ color: 'var(--muted-2)', fontSize: 14, fontWeight: 600 }}>Total balance</div>
-        <div className="num" style={{ fontSize: 44, fontWeight: 800, letterSpacing: '-.02em' }}>{usd(p.total_usd)}</div>
-        <div className={up ? 'up' : 'down'} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, fontWeight: 700 }}>
-          {up ? '▲ +' : '▼ -'}{usd(Math.abs(p.change_24h_usd))}
-          <span style={{ background: up ? 'var(--green-soft)' : 'var(--red-soft)', borderRadius: 99, padding: '3px 10px', fontSize: 13 }}>{signedPct(p.change_24h_pct)}</span>
-          <span style={{ color: 'var(--muted-2)', fontWeight: 500, fontSize: 13 }}>today</span>
+    <div className="app-page">
+      <div className="grid-main-side">
+        <div className="stack" style={{ gap: 24 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="label">Total balance</div>
+              <button onClick={() => void refresh()} disabled={refreshing} style={{ height: 44, background: 'none', border: 0, fontSize: 14, fontWeight: 600, color: 'var(--muted)', padding: 0 }}>
+                {refreshing ? 'Refreshing…' : 'Refresh'}
+              </button>
+            </div>
+            <div className="num pf-total">{usd(p.total_usd)}</div>
+            <div className={up ? 'up' : 'down'} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 16, fontWeight: 600 }}>
+              <span>{up ? '+' : '−'}{usd(Math.abs(p.change_24h_usd))}</span>
+              <span style={{ background: up ? 'var(--green-soft)' : 'var(--red-soft)', borderRadius: 99, padding: '3px 10px', fontSize: 14 }}>{signedPct(p.change_24h_pct)}</span>
+              <span style={{ color: 'var(--muted)', fontWeight: 500, fontSize: 14 }}>today</span>
+            </div>
+          </div>
+
+          {notCounted > 0 && (
+            <div className="notice" role="note">
+              <b style={{ color: 'var(--ink)' }}>{notCounted} {notCounted === 1 ? "token isn't" : "tokens aren't"} counted.</b>{' '}
+              We couldn't confirm you could sell {notCounted === 1 ? 'it' : 'them'}, so {notCounted === 1 ? 'it stays' : 'they stay'} out of your total.
+            </div>
+          )}
+          {(p.excluded_count ?? 0) > 0 && (
+            <div className="notice" role="note">
+              <b style={{ color: 'var(--ink)' }}>{p.excluded_count} {p.excluded_count === 1 ? 'token was' : 'tokens were'} left out.</b>{' '}
+              {p.excluded_count === 1 ? 'Its pool is' : 'Their pools are'} too small to pay out what it looks like it's worth.
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="label">Your holdings · {p.holdings.length}</div>
+            <div className="group">
+              {p.holdings.map(h => <HoldingRow key={h.token} h={h} />)}
+            </div>
+          </div>
         </div>
-      </div>
-      <div className="col-8" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div className="label" style={{ marginTop: 6 }}>Your holdings</div>
-      {(p.not_counted_count ?? 0) > 0 && (
-        <div className="notice" role="note">
-          {p.not_counted_count} {p.not_counted_count === 1 ? 'token is' : 'tokens are'} listed but not in your balance: we can't
-          confirm {p.not_counted_count === 1 ? 'it' : 'they'} could be sold. Tap one to see why.
-        </div>
-      )}
-      {(p.excluded_count ?? 0) > 0 && (
-        <div className="notice" role="note">
-          {p.excluded_count} {p.excluded_count === 1 ? 'token was' : 'tokens were'} left out. Their pools are too small to
-          pay out what they look like they're worth, so counting them would be misleading.
-        </div>
-      )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {p.holdings.map(h => <HoldingRow key={h.token} h={h} onOpen={() => h.token !== 'native' && nav(`/app/safety/${h.token}`)} />)}
-      </div>
+
+        <aside className="dark-card glance" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="serif" style={{ fontSize: 26, letterSpacing: '-.02em', lineHeight: 1.1 }}>Safety at a glance</div>
+          {[{ k: 'Clean', v: clean, c: '#0A8F0E' }, { k: 'Risky', v: risky, c: '#E59A18' }, { k: 'Not counted', v: notCounted, c: '#B9B3A6' }].map(g => (
+            <div key={g.k} style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 15 }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: g.c }} />
+              <span style={{ flex: 1 }}>{g.k}</span>
+              <b className="num" style={{ fontSize: 20 }}>{g.v}</b>
+            </div>
+          ))}
+          <div style={{ fontSize: 13, lineHeight: 1.5, color: '#B9B3A6', borderTop: '1px solid rgba(255,255,255,.12)', paddingTop: 14 }}>
+            Open any token to see why it got its verdict.
+          </div>
+        </aside>
       </div>
     </div>
   )
 }
 
-function HoldingRow({ h, onOpen }: { h: Holding; onOpen: () => void }) {
+function HoldingRow({ h }: { h: Holding }) {
+  const native = h.token === 'native'
+  const counted = h.counted !== false
+  const tag = tagFor(h)
   const pct = h.pnl_pct ?? h.change_24h_pct
   const neg = (pct ?? 0) < 0
-  return (
-    <div onClick={onOpen} className="card" style={{ cursor: h.token === 'native' ? 'default' : 'pointer', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14 }}>
-      <Avatar seed={h.token} letter={h.symbol} image={h.image_url} color={h.token === 'native' ? '#4A90E2' : undefined} />
+  const body = (
+    <>
+      <Avatar seed={h.token} letter={h.symbol} image={h.image_url} size={44} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 700, fontSize: 16, display: 'flex', gap: 6, alignItems: 'center' }}>
-          {h.symbol}
-          {h.verdict === 'DANGER' && <span title="Failed safety check" style={{ fontSize: 12, color: 'var(--red-text)' }}>✕</span>}
-          {h.verdict === 'RISKY' && <span title="Risky" style={{ fontSize: 12, color: 'var(--amber-text)' }}>!</span>}
-          {h.verdict === 'UNKNOWN' && <span title="We couldn't check this one" style={{ fontSize: 12, color: 'var(--muted-2)' }}>?</span>}
+        <div style={{ fontWeight: 700, fontSize: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {h.symbol}{tag && <span className={`tag ${tag.cls}`}>{tag.label}</span>}
         </div>
-        <div style={{ color: 'var(--muted-2)', fontSize: 13, marginTop: 2 }}>
-          {amount(h.amount)} {h.symbol}
-          {h.price_usd == null && <span> · no price yet</span>}
-        </div>
-        {h.counted === false && h.not_counted_reason && h.price_usd != null && (
-          <div style={{ fontSize: 12, lineHeight: '16px', marginTop: 4, color: 'var(--amber-text)', fontWeight: 600 }}>Not in your balance · {h.not_counted_reason}</div>
-        )}
+        <div style={{ color: 'var(--muted)', fontSize: 14, marginTop: 2 }}>{amount(h.amount)} {h.symbol}</div>
       </div>
       <div style={{ textAlign: 'right' }}>
-        <div className="num" style={{ fontWeight: 800, fontSize: 16 }}>
-          {h.price_usd == null || h.counted === false ? '—' : usd(h.value_usd)}
+        <div className="num" style={{ fontWeight: 700, fontSize: 16 }}>
+          {h.price_usd == null ? '—' : counted ? usd(h.value_usd) : 'Not counted'}
         </div>
-        {pct != null && h.counted !== false && (
-          <div className={neg ? 'down' : 'up'} style={{ fontWeight: 700, fontSize: 13, marginTop: 2 }}>{neg ? '▼ ' : '▲ '}{signedPct(pct)}</div>
-        )}
+        <div style={{ fontWeight: 600, fontSize: 14, marginTop: 2, color: !counted || h.price_usd == null || pct == null ? 'var(--muted)' : neg ? 'var(--red)' : 'var(--green-text)', maxWidth: 170 }}>
+          {h.price_usd == null ? 'No price yet' : !counted ? (h.not_counted_reason ?? '') : pct == null ? '' : signedPct(pct)}
+        </div>
       </div>
-    </div>
+    </>
   )
+  const style = { display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px', minHeight: 76, boxShadow: '0 -1px 0 var(--hairline)', textDecoration: 'none', color: 'var(--ink)', opacity: counted ? 1 : .62 } as const
+  return native
+    ? <div style={style} className="hrow">{body}</div>
+    : <Link to={`/app/safety/${h.token}`} style={style} className="hrow">{body}</Link>
 }

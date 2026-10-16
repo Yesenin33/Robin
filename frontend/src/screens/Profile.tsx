@@ -6,7 +6,6 @@ import { Toggle, toast } from '../components/ui'
 import { useAuth } from '../lib/auth'
 import { shortAddr } from '../lib/format'
 import { disablePush, enablePush } from '../lib/push'
-import { currentTheme, setTheme, type Theme } from '../lib/theme'
 import { useAsync } from '../lib/useAsync'
 
 
@@ -17,7 +16,6 @@ export function Profile() {
   const { state: alerts, reload: reloadAlerts } = useAsync(() => api.alerts(), [])
   const [tgLink, setTgLink] = useState<{ url: string; code: string } | null>(null)
   const [tgInput, setTgInput] = useState('')
-  const [mode, setMode] = useState<Theme>(currentTheme())
   const channels = ch.status === 'ready' ? ch.data : { push: false, telegram: false, telegram_bot: null }
 
   // while the "Open @bot" card is up, watch for the bot confirming the link
@@ -81,83 +79,85 @@ export function Profile() {
 
   return (
     <div className="app-page">
-      <div className="h1">Profile</div>
+      <h1 className="display">Profile</h1>
       {!wallet && (
-        <div className="notice">
-          No wallet connected — connect one to see your portfolio and get alerts.
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'flex-start' }}>
+          <div className="notice" style={{ fontSize: 16, padding: '18px 20px', borderRadius: 18 }}>No wallet connected. Connect one to see your portfolio and get alerts.</div>
+          <button className="btn btn-primary" style={{ height: 52 }} onClick={() => nav('/app')}>Connect wallet</button>
         </div>
       )}
-      <div className="col-6" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <div className="label">Alerts</div>
-      <div className="card" style={{ borderRadius: 22, overflow: 'hidden' }}>
-        {toggles.map(t => (
-          <div key={t.label} className="list-row" style={{ cursor: 'pointer' }} onClick={() => void t.flip()}>
+      <div className="grid-2" style={{ gap: 24 }}>
+        <div className="stack" style={{ gap: 12 }}>
+          <div className="dark-card" style={{ padding: 22, display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div className="avatar" style={{ width: 48, height: 48, background: 'var(--lime)' }}>0x</div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>{t.label}</div>
-              <div style={{ fontSize: 13, color: 'var(--muted-2)', marginTop: 2 }}>{t.sub}</div>
+              <div className="num" style={{ fontWeight: 700, fontSize: 17 }}>{account}</div>
+              <div style={{ fontSize: 14, color: '#B9B3A6', marginTop: 2 }}>Robinhood Chain · {wallet ? 'connected' : 'not connected'}</div>
             </div>
-            <Toggle on={t.on} />
           </div>
-        ))}
-      </div>
-
-      {tgLink && (
-        <div className="card" style={{ borderRadius: 22, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <a className="btn btn-primary" href={tgLink.url} target="_blank" rel="noreferrer"
-            style={{ height: 50, fontSize: 15, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
-            Open @{channels.telegram_bot ?? 'chainfolio_bot'}
-          </a>
-          <div style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.45 }}>
-            Tap the button and press Start — you're connected. On another device? Send the bot this code:{' '}
-            <b className="num" style={{ color: 'var(--text)', letterSpacing: '.1em' }}>{tgLink.code}</b>
-          </div>
-          <form style={{ display: 'flex', gap: 8 }} onSubmit={e => { e.preventDefault(); void submitBotCode() }}>
-            <input className="input" style={{ height: 44, fontSize: 14 }} inputMode="numeric" maxLength={6} value={tgInput}
-              onChange={e => setTgInput(e.target.value)} placeholder="Code from the bot" />
-            <button className="btn btn-ghost" style={{ height: 44, padding: '0 14px', fontSize: 14 }} type="submit">Connect</button>
-          </form>
-        </div>
-      )}
-
-      {alerts.status === 'ready' && alerts.data.items.length > 0 && (
-        <>
-          <div className="label">Recent alerts{alerts.data.unread ? ` · ${alerts.data.unread} new` : ''}</div>
-          <div className="card" style={{ borderRadius: 22, overflow: 'hidden' }}>
-            {alerts.data.items.slice(0, 5).map(a => (
-              <div key={a.id} className="list-row" style={{ cursor: 'pointer' }} onClick={() => void openAlert(a.id, a.url)}>
+          <div className="label" style={{ marginTop: 8 }}>Alerts</div>
+          <div className="group">
+            {toggles.map(t => (
+              <div key={t.label} className="list-row" role="button" tabIndex={0} style={{ cursor: 'pointer', minHeight: 72 }}
+                onClick={() => void t.flip()} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void t.flip() } }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: a.read ? 600 : 800, fontSize: 15 }}>{a.title}</div>
-                  <div style={{ fontSize: 13, color: 'var(--muted-2)', marginTop: 2 }}>{a.body}</div>
+                  <div style={{ fontWeight: 700, fontSize: 16 }}>{t.label}</div>
+                  <div style={{ fontSize: 14, color: 'var(--muted)', marginTop: 2, lineHeight: 1.4 }}>{t.sub}</div>
                 </div>
-                {!a.read && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)', flex: 'none' }} />}
+                <Toggle on={t.on} />
               </div>
             ))}
           </div>
-        </>
-      )}
 
-      </div>
-      <div className="col-6" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      <div className="label">Appearance</div>
-      <div className="card" style={{ borderRadius: 22, padding: 8, display: 'flex', gap: 6 }} role="group" aria-label="Appearance">
-        {(['light', 'dark'] as const).map(t => (
-          <button key={t} onClick={() => { setTheme(t); setMode(t) }} aria-pressed={mode === t} className={`chip ${mode === t ? 'on' : ''}`}
-            style={{ flex: 1, alignItems: 'center', minHeight: 48 }}><b>{t === 'light' ? 'Light' : 'Dark'}</b></button>
-        ))}
-      </div>
-      <div className="label">Settings</div>
-      <div className="card" style={{ borderRadius: 22, overflow: 'hidden' }}>
-        {settings.map(s => {
-          const row = (
-            <div className="list-row" style={{ justifyContent: 'space-between', fontSize: 15, fontWeight: 600 }}>
-              <span>{s.k}</span><span style={{ color: 'var(--muted-2)', fontWeight: 500 }}>{s.v} ›</span>
+          {tgLink && (
+            <div className="card" style={{ borderRadius: 22, padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <a className="btn btn-primary" href={tgLink.url} target="_blank" rel="noreferrer" style={{ height: 52, fontSize: 16 }}>
+                Open @{channels.telegram_bot ?? 'chainfolio_bot'}
+              </a>
+              <div style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--body)' }}>
+                Tap the button and press Start. You're connected. On another device? Send the bot this code:{' '}
+                <b className="num" style={{ color: 'var(--ink)', letterSpacing: '.12em' }}>{tgLink.code}</b>
+              </div>
+              <form style={{ display: 'flex', gap: 8 }} onSubmit={e => { e.preventDefault(); void submitBotCode() }}>
+                <input className="input" style={{ height: 48, fontSize: 15, padding: '0 18px', background: 'var(--paper)' }} inputMode="numeric" maxLength={6} value={tgInput}
+                  onChange={e => setTgInput(e.target.value)} placeholder="Code from the bot" aria-label="Code from the bot" />
+                <button className="btn btn-ghost btn-sm" type="submit">Connect</button>
+              </form>
             </div>
-          )
-          return s.href ? <a key={s.k} href={s.href} style={{ color: 'inherit', textDecoration: 'none' }}>{row}</a> : <div key={s.k}>{row}</div>
-        })}
-      </div>
+          )}
+        </div>
 
-      <button className="btn btn-danger" onClick={() => { logout(); nav('/') }}>Sign out</button>
+        <div className="stack" style={{ gap: 12 }}>
+          {alerts.status === 'ready' && alerts.data.items.length > 0 && (
+            <>
+              <div className="label">Recent alerts{alerts.data.unread ? ` · ${alerts.data.unread} new` : ''}</div>
+              <div className="group">
+                {alerts.data.items.slice(0, 5).map(a => (
+                  <div key={a.id} className="list-row" role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => void openAlert(a.id, a.url)}
+                    onKeyDown={e => { if (e.key === 'Enter') void openAlert(a.id, a.url) }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: a.read ? 600 : 800, fontSize: 15 }}>{a.title}</div>
+                      <div style={{ fontSize: 14, color: 'var(--muted)', marginTop: 2 }}>{a.body}</div>
+                    </div>
+                    {!a.read && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)', flex: 'none' }} />}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          <div className="label" style={{ marginTop: 8 }}>Settings</div>
+          <div className="group">
+            {settings.map(s => {
+              const row = (
+                <div className="list-row" style={{ justifyContent: 'space-between', height: 56, padding: '0 18px', fontSize: 16, fontWeight: 600 }}>
+                  <span>{s.k}</span><span style={{ color: 'var(--muted)', fontWeight: 500 }}>{s.v} ›</span>
+                </div>
+              )
+              return s.href ? <a key={s.k} href={s.href} style={{ color: 'inherit', textDecoration: 'none' }}>{row}</a> : <div key={s.k}>{row}</div>
+            })}
+          </div>
+          <button className="btn btn-danger" style={{ marginTop: 8 }} onClick={() => { logout(); nav('/') }}>Sign out</button>
+        </div>
       </div>
     </div>
   )

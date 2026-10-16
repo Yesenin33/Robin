@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 /** The single bottom sheet used for every confirmation (swap, anything that needs a yes). */
 export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
@@ -10,18 +11,20 @@ export function Sheet({ title, onClose, children }: { title: string; onClose: ()
     window.addEventListener('keydown', key)
     return () => { window.removeEventListener('keydown', key); prev?.focus?.() }
   }, [onClose])
-  return (
+  // portal: the sheet must sit above the tab bar, which lives in another stacking context
+  return createPortal(
     <>
       <div className="sheet-scrim" onClick={onClose} />
       <div className="sheet" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={ref}>
         <div className="sheet-grab" />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <div className="sheet-title">{title}</div>
-          <button onClick={onClose} aria-label="Close" className="btn btn-ghost"
-            style={{ width: 44, height: 44, minHeight: 44, padding: 0, borderRadius: 99, fontSize: 18 }}>✕</button>
+          <button onClick={onClose} aria-label="Close"
+            style={{ width: 44, height: 44, borderRadius: '50%', border: 0, background: '#EFECE3', fontSize: 18, flex: 'none' }}>✕</button>
         </div>
         {children}
       </div>
-    </>
+    </>,
+    document.body,
   )
 }

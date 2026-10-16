@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#F7F5EF;font-family:'Albert Sans',system-ui,sans-serif;color:#110E08}a{color:#110E08}*{box-sizing:border-box}input{font-family:inherit}@keyframes cfspin{to{transform:rotate(360deg)}}</style>
+</helmet>
+<div style="min-height:100vh;background:radial-gradient(ellipse 90% 30% at 50% -6%,rgba(204,255,0,.2),rgba(204,255,0,0) 100%),#F7F5EF;padding-left:{{ padL }};padding-bottom:{{ padB }}">
+  <dc-import name="AppNav" active="safety" hint-size="0px,0px"></dc-import>
+  <div style="max-width:1080px;margin:0 auto;padding:{{ pad }};display:flex;flex-direction:column;gap:24px">
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <div style="font-family:'Newsreader',serif;font-size:{{ title }};letter-spacing:-.03em;line-height:1.05">Is this token safe?</div>
+      <div style="color:#4A463D;font-size:16px;line-height:1.5">Paste a token address. We check holders, liquidity and who can sell, in plain words.</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <input placeholder="Token address (0x…)" spellcheck="false" style="flex:1;min-width:0;height:56px;border-radius:99px;border:0;background:#fff;box-shadow:0 0 0 1px rgba(17,14,8,.12);padding:0 22px;font-size:16px;color:#110E08;outline:none">
+      <button style="height:56px;padding:0 20px;border-radius:99px;border:0;background:transparent;box-shadow:inset 0 0 0 1px rgba(17,14,8,.25);color:#110E08;font-weight:700;font-size:15px;cursor:pointer;font-family:inherit">Paste</button>
+      <a href="?state=loading" style="height:56px;padding:0 26px;border-radius:99px;background:#110E08;color:#F7F5EF;font-weight:700;font-size:15px;display:inline-flex;align-items:center;text-decoration:none">Check</a>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:13px;font-weight:600;color:#5E594E">Recently checked · a name isn't an identifier, so check the address</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <sc-for list="{{ recent }}" as="t" hint-placeholder-count="4"><a href="{{ t.href }}" style="min-height:48px;padding:6px 16px;border-radius:14px;background:{{ t.bg }};color:{{ t.fg }};box-shadow:0 0 0 1px {{ t.bd }};text-decoration:none;display:flex;flex-direction:column;gap:1px"><b style="font-size:14px">{{ t.sym }}</b><span style="font-size:12px;font-variant-numeric:tabular-nums;opacity:.75">{{ t.ca }} · {{ t.ago }}</span></a></sc-for>
+      </div>
+    </div>
+
+    <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}">
+      <div style="background:#fff;border-radius:24px;padding:28px;display:flex;flex-direction:column;gap:20px;box-shadow:0 0 0 1px rgba(17,14,8,.07)">
+        <div style="display:flex;align-items:center;gap:14px"><div style="width:32px;height:32px;border-radius:50%;border:3px solid #E6E2D6;border-top-color:#110E08;animation:cfspin 1s linear infinite;flex:none"></div><div><div style="font-family:'Newsreader',serif;font-size:26px;letter-spacing:-.02em;line-height:1.1">Checking this token</div><div style="font-size:14px;color:#5E594E;margin-top:3px;font-variant-numeric:tabular-nums">{{ el }}s so far · most checks take under a minute</div></div></div>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <sc-for list="{{ stages }}" as="g" hint-placeholder-count="3"><div style="display:flex;align-items:center;gap:12px;font-size:16px;font-weight:{{ g.fw }};color:{{ g.fg }}"><span style="width:22px;height:22px;border-radius:50%;background:{{ g.bg }};color:#F7F5EF;font-size:12px;display:flex;align-items:center;justify-content:center;flex:none">{{ g.mark }}</span>{{ g.t }}</div></sc-for>
+        </div>
+        <a href="?state=empty" style="align-self:flex-start;height:44px;padding:0 22px;border-radius:99px;box-shadow:inset 0 0 0 1px rgba(17,14,8,.25);color:#110E08;font-weight:700;font-size:15px;display:inline-flex;align-items:center;text-decoration:none">Stop waiting</a>
+      </div>
+    </sc-if>
+    <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}"><div style="padding:32px 0;color:#4A463D;font-size:16px;line-height:1.5"><b style="color:#110E08">Nothing to check yet.</b> Paste an address above, or pick one you checked before.</div></sc-if>
+    <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}"><div style="background:#FCE6E2;color:#8F1D15;border-radius:20px;padding:20px;display:flex;flex-direction:column;gap:12px;align-items:flex-start"><div style="font-size:16px;line-height:1.45"><b>We couldn't run the safety check.</b> Nothing was bought or sold. Try again in a moment.</div><a href="?state=ready" style="height:44px;padding:0 22px;border-radius:99px;background:#110E08;color:#F7F5EF;font-weight:700;font-size:15px;display:inline-flex;align-items:center;text-decoration:none">Try again</a></div></sc-if>
+
+    <sc-if value="{{ isReady }}" hint-placeholder-val="{{ false }}">
+      <div style="display:grid;grid-template-columns:{{ cols }};gap:24px;align-items:start">
+        <div style="display:flex;flex-direction:column;gap:20px">
+          <div style="display:flex;align-items:center;gap:14px"><div style="width:52px;height:52px;border-radius:50%;background:{{ tk.c }};color:#110E08;font-weight:700;font-size:20px;display:flex;align-items:center;justify-content:center">{{ tk.l }}</div><div style="min-width:0"><div style="font-size:22px;font-weight:700">{{ tk.name }}</div><div style="font-size:14px;color:#5E594E;margin-top:2px;font-variant-numeric:tabular-nums">{{ tk.ca }} · tap to copy</div></div></div>
+          <div style="border-radius:28px;padding:28px;background:{{ tk.soft }};display:flex;flex-direction:column;gap:14px">
+            <div style="display:flex;align-items:center;gap:12px"><span style="width:14px;height:14px;border-radius:50%;background:{{ tk.dot }}"></span><span style="font-family:'Newsreader',serif;font-size:56px;line-height:1;letter-spacing:-.03em;color:{{ tk.ink }}">{{ tk.word }}</span><span style="margin-left:auto;font-size:13px;font-weight:700;letter-spacing:.08em;padding:6px 12px;border-radius:99px;background:{{ tk.dot }};color:#fff">{{ tk.verdict }}</span></div>
+            <div style="font-size:18px;line-height:1.45;font-weight:500;color:{{ tk.ink }}">{{ tk.summary }}</div>
+            <ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:15px;line-height:1.45;color:{{ tk.ink }}"><sc-for list="{{ tk.risks }}" as="r" hint-placeholder-count="2"><li>{{ r }}</li></sc-for></ul>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <sc-for list="{{ tk.metrics }}" as="m" hint-placeholder-count="4"><div style="background:#fff;border-radius:20px;padding:18px;display:flex;flex-direction:column;gap:6px;box-shadow:0 0 0 1px rgba(17,14,8,.07)"><div style="font-size:13px;font-weight:600;color:#5E594E">{{ m.k }}</div><div style="font-size:28px;font-weight:600;letter-spacing:-.03em;font-variant-numeric:tabular-nums;color:{{ m.c }}">{{ m.v }}</div><div style="font-size:13px;color:#5E594E;line-height:1.4">{{ m.d }}</div></div></sc-for>
+          </div>
+          <div style="font-size:13px;color:#5E594E;line-height:1.4">Holder numbers from {{ tk.ago }}. We refresh them in the background.</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <button onClick="{{ openBuy }}" style="height:56px;border-radius:99px;border:0;background:{{ tk.buyBg }};color:{{ tk.buyFg }};box-shadow:{{ tk.buyBd }};font-weight:700;font-size:17px;cursor:pointer;font-family:inherit">Buy</button>
+            <button onClick="{{ openSell }}" style="height:56px;border-radius:99px;border:0;background:transparent;box-shadow:inset 0 0 0 1px rgba(17,14,8,.3);color:#110E08;font-weight:700;font-size:17px;cursor:pointer;font-family:inherit">Sell</button>
+          </div>
+          <div style="text-align:center;font-size:13px;color:#5E594E">{{ tk.note }}</div>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+
+  <sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeSheet }}" style="position:fixed;inset:0;background:rgba(17,14,8,.5);z-index:40"></div>
+    <div style="{{ sheetPos }}">
+      <div style="width:40px;height:4px;border-radius:2px;background:#D9D5C9;align-self:center;flex:none"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center"><div style="font-family:'Newsreader',serif;font-size:30px;letter-spacing:-.02em">{{ sheetTitle }}</div><button onClick="{{ closeSheet }}" style="width:44px;height:44px;border-radius:50%;border:0;background:#EFECE3;font-size:18px;cursor:pointer">✕</button></div>
+
+      <sc-if value="{{ pDone }}" hint-placeholder-val="{{ false }}">
+        <div style="font-size:16px;line-height:1.5">Your {{ sideNoun }} of {{ tk.sym }} went through.</div>
+        <a href="https://robinhoodchain.blockscout.com" style="font-size:13px;word-break:break-all;font-variant-numeric:tabular-nums;color:#067A0A">0x9c41e7b2a05f3d86c1e04a7be93d52f8a6c07d1e4b3a2f95e8d60c7b1a4f3e92</a>
+        <a href="Portfolio.dc.html" style="height:56px;border-radius:99px;background:#110E08;color:#F7F5EF;font-weight:700;font-size:17px;display:flex;align-items:center;justify-content:center;text-decoration:none">Back to the app</a>
+      </sc-if>
+
+      <sc-if value="{{ pOff }}" hint-placeholder-val="{{ false }}">
+        <div style="background:{{ tk.soft }};color:{{ tk.ink }};border-radius:16px;padding:14px 16px;font-size:14px;line-height:1.45"><b>{{ tk.verdict }}</b> · {{ tk.short }}</div>
+        <div style="background:#fff;border-radius:14px;padding:14px 16px;font-size:14px;line-height:1.45;color:#4A463D;box-shadow:0 0 0 1px rgba(17,14,8,.07)">Trading inside Chainfolio isn't switched on yet.</div>
+        <a href="https://app.uniswap.org" style="height:56px;border-radius:99px;background:#110E08;color:#F7F5EF;font-weight:700;font-size:17px;display:flex;align-items:center;justify-content:center;text-decoration:none">Open in Uniswap</a>
+      </sc-if>
+
+      <sc-if value="{{ pForm }}" hint-placeholder-val="{{ true }}">
+        <div style="background:{{ tk.soft }};color:{{ tk.ink }};border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:4px"><div style="font-size:12px;opacity:.75;font-variant-numeric:tabular-nums">{{ tk.sym }} · {{ tk.ca }} — a name is not an identifier, check the address</div><div style="font-size:14px;line-height:1.45"><b>{{ tk.verdict }}</b> · {{ tk.short }}</div></div>
+        <div style="display:flex;gap:8px">
+          <input value="{{ amount }}" onInput="{{ setAmount }}" inputmode="decimal" aria-label="Amount" style="flex:1;min-width:0;height:56px;border-radius:99px;border:0;background:#fff;box-shadow:0 0 0 1px rgba(17,14,8,.12);padding:0 22px;font-size:17px;font-weight:600;color:#110E08;outline:none">
+          <sc-if value="{{ isBuy }}" hint-placeholder-val="{{ true }}"><div style="display:flex;gap:4px"><sc-for list="{{ pays }}" as="p" hint-placeholder-count="2"><button onClick="{{ p.go }}" style="min-width:64px;height:56px;border-radius:99px;border:0;background:{{ p.bg }};color:{{ p.fg }};box-shadow:0 0 0 1px rgba(17,14,8,.15);font-weight:700;font-size:14px;cursor:pointer;font-family:inherit">{{ p.l }}</button></sc-for></div></sc-if>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center"><span style="font-size:13px;font-weight:600;color:#5E594E">Slippage</span><sc-for list="{{ slips }}" as="p" hint-placeholder-count="3"><button onClick="{{ p.go }}" style="min-width:60px;height:40px;border-radius:99px;border:0;background:{{ p.bg }};color:{{ p.fg }};box-shadow:0 0 0 1px rgba(17,14,8,.15);font-weight:700;font-size:14px;cursor:pointer;font-family:inherit">{{ p.l }}</button></sc-for></div>
+        <div style="background:#fff;border-radius:18px;padding:6px 16px;box-shadow:0 0 0 1px rgba(17,14,8,.07)">
+          <sc-for list="{{ quote }}" as="q" hint-placeholder-count="5"><div style="display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-top:1px solid rgba(17,14,8,.07);font-size:15px"><span style="color:#5E594E">{{ q.k }}</span><b style="font-variant-numeric:tabular-nums">{{ q.v }}</b></div></sc-for>
+        </div>
+        <div style="font-size:13px;color:#5E594E;line-height:1.4">{{ firstTime }}</div>
+        <sc-if value="{{ needAck }}" hint-placeholder-val="{{ false }}"><div onClick="{{ toggleAck }}" style="display:flex;gap:12px;align-items:flex-start;cursor:pointer;font-size:14px;line-height:1.45;min-height:44px"><span style="width:26px;height:26px;border-radius:8px;background:{{ ackBg }};box-shadow:inset 0 0 0 1.5px #110E08;color:#CCFF00;display:flex;align-items:center;justify-content:center;flex:none;font-weight:700">{{ ackMark }}</span>{{ ackText }}</div></sc-if>
+        <sc-if value="{{ note }}" hint-placeholder-val="{{ false }}"><div style="background:#fff;border-radius:14px;padding:12px 14px;font-size:14px;color:#4A463D;box-shadow:0 0 0 1px rgba(17,14,8,.07)">Cancelled in your wallet. Nothing was sent.</div></sc-if>
+        <button onClick="{{ confirm }}" style="height:56px;border-radius:99px;border:0;background:{{ cBg }};color:{{ cFg }};font-weight:700;font-size:17px;cursor:pointer;font-family:inherit">{{ cLabel }}</button>
+        <a href="https://app.uniswap.org" style="text-align:center;font-size:13px;color:#5E594E">Or open this trade in Uniswap</a>
+      </sc-if>
+
+      <sc-if value="{{ pSending }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;padding:24px 0"><div style="width:40px;height:40px;border-radius:50%;border:3px solid #E6E2D6;border-top-color:#110E08;animation:cfspin 1s linear infinite"></div><div style="font-weight:700;font-size:18px">{{ sendTitle }}</div><div style="font-size:14px;color:#5E594E;line-height:1.5;max-width:300px">{{ sendBody }}</div></div>
+      </sc-if>
+    </div>
+  </sc-if>
+  <dc-import name="ProtoDock" page="Safety" hint-size="0px,0px"></dc-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { w: window.innerWidth, el: 0, sheet: null, amount: '0.05', pay: 'ETH', slip: 100, ack: false, phase: 'form', note: false };
+  componentDidMount() { this.rs = () => this.setState({ w: window.innerWidth }); window.addEventListener('resize', this.rs); this.t = setInterval(() => this.setState(s => ({ el: s.el + 1 })), 1000); }
+  componentWillUnmount() { window.removeEventListener('resize', this.rs); clearInterval(this.t); clearTimeout(this.k1); clearTimeout(this.k2); }
+  renderVals() {
+    const q = new URLSearchParams(window.location.search), st = q.get('state') || 'ready', swapOff = q.get('swap') === 'off';
+    const tok = Math.min(3, Math.max(0, parseInt(q.get('t') || '0', 10) || 0));
+    const { sheet, amount, pay, slip, ack, phase, note, el, w } = this.state;
+    const d = w >= 1024, INK = '#110E08', PAPER = '#F7F5EF', G = '#067A0A', AMB = '#8A5300', L = '#C8281E', U = '#5E594E';
+    const AV = ['#E4DCC3', '#CFE3B4', '#F0D9A8', '#D8D2E8', '#C9DDE0', '#EBCFC4'];
+    const V = { CLEAN: { word: 'Clean', soft: '#E4F6DD', ink: '#0D3B10', dot: '#0A8F0E' }, RISKY: { word: 'Risky', soft: '#FFEFCC', ink: '#4A2C00', dot: '#C77700' }, DANGER: { word: 'Danger', soft: '#FCE6E2', ink: '#5E120C', dot: '#C8281E' }, UNKNOWN: { word: 'Unknown', soft: '#ECE9E1', ink: INK, dot: '#5E594E' } };
+    const M = (a, b, c, e) => [{ k: 'Holders', v: a[0], d: a[1], c: a[2] || INK }, { k: 'Real hands', v: b[0], d: b[1], c: b[2] || INK }, { k: 'If top holder sells', v: c[0], d: c[1], c: c[2] || INK }, { k: 'Liquidity', v: e[0], d: e[1], c: e[2] || INK }];
+    const T = [
+      { sym: 'HOOD-X', name: 'Hood Index', l: 'H', c: AV[2], ca: '0x7a3f…c91e', ago: '2 min ago', v: 'CLEAN', per: 2.6, imp: '0.1%', summary: 'Looks healthy. Lots of real people hold it and no single holder can move the price much.', short: 'Looks healthy. No single holder can move the price much.', risks: ['94% of holders look like real people', 'You can sell it without a big loss'], m: M(['18,420', 'People who own it'], ['94%', 'Not bots or linked wallets', G], ['−6%', 'Price could drop about 6%'], ['$2.4M', 'Easy to sell in size']), note: '' },
+      { sym: 'PLUM', name: 'Plum Finance', l: 'P', c: AV[4], ca: '0x41bd…07aa', ago: '1 hr ago', v: 'RISKY', per: 5200, imp: '2.8%', summary: 'Be careful. A few wallets hold half of it, and it could drop 48% if the top holder sells.', short: 'A few wallets hold half of it. Could drop 48% if the top holder sells.', risks: ['4 in 10 holders look like bots', 'Selling a large amount will move the price'], m: M(['1,208', 'People who own it'], ['61%', 'About 4 in 10 look like bots', AMB], ['−48%', 'Price could drop about 48%', AMB], ['$180K', 'Large sells move the price']), note: 'Think about the amount before you buy.' },
+      { sym: 'MOONCAT', name: 'Mooncat', l: 'M', c: AV[3], ca: '0x09ee…f5d2', ago: '3 hr ago', v: 'DANGER', per: 38000000, imp: '9.4%', summary: 'Very likely a scam. One wallet owns most of it and you may not be able to sell. Avoid.', short: 'Very likely a scam. You may not be able to sell it.', risks: ['One wallet owns most of the supply', 'Almost nothing in the pool to sell into', 'No website or social page found'], m: M(['94', 'Very few owners', L], ['18%', 'Most look fake', L], ['−92%', 'Price could nearly vanish', L], ['$6K', 'Hard to sell at any price', L]), note: 'Buying this one is not recommended.' },
+      { sym: 'ORBIT', name: 'Orbit', l: 'O', c: AV[5], ca: '0x5b54…fc09', ago: '1 day ago', v: 'UNKNOWN', per: 900, imp: "can't estimate", summary: 'We couldn’t check this one. Don’t treat it as safe.', short: 'We couldn’t check this one. Don’t treat it as safe.', risks: ['We couldn’t read the holder list', 'We couldn’t confirm anyone has sold it recently'], m: M(['—', 'Couldn’t read', U], ['—', 'Couldn’t read', U], ['—', 'Couldn’t read', U], ['$2K', 'Very little in the pool', U]), note: 'Unknown is not the same as safe.' }
+    ].map(t => { const ok = t.v === 'CLEAN' || t.v === 'RISKY'; return { ...t, verdict: t.v, ...V[t.v], metrics: t.m, buyBg: ok ? INK : 'transparent', buyFg: ok ? PAPER : INK, buyBd: ok ? 'none' : 'inset 0 0 0 1px rgba(17,14,8,.3)' }; });
+    const tk = T[tok];
+    const recent = T.map((t, i) => ({ sym: t.sym, ca: t.ca, ago: t.ago, href: '?t=' + i, bg: tok === i ? INK : '#fff', fg: tok === i ? PAPER : INK, bd: tok === i ? INK : 'rgba(17,14,8,.12)' }));
+    const stg = Math.min(2, Math.floor(el / 4));
+    const stages = ['Reading the contract', 'Counting holders and finding real hands', 'Checking liquidity and sell pressure'].map((t, i) => ({ t, mark: i < stg ? '✓' : '', bg: i < stg ? '#0A8F0E' : i === stg ? INK : '#CFCABD', fw: i === stg ? 700 : 500, fg: i > stg ? '#6F6A5F' : INK }));
+    const buy = sheet !== 'sell', side = sheet === 'sell' ? 'sell' : 'buy';
+    const a = parseFloat(String(amount).replace(',', '.')) || 0;
+    const fmt = (n, m = 4) => n.toLocaleString('en-US', { maximumFractionDigits: m });
+    const ethUsd = 3300;
+    let out, min;
+    if (buy) { const rate = pay === 'ETH' ? tk.per : tk.per * ethUsd / 1; const o = pay === 'ETH' ? a * tk.per : a / ethUsd * tk.per; out = fmt(o * 0.997) + ' ' + tk.sym; min = fmt(o * 0.997 * (1 - slip / 10000)) + ' ' + tk.sym; }
+    else { const o = a / tk.per; out = fmt(o * 0.997) + ' ' + pay; min = fmt(o * 0.997 * (1 - slip / 10000)) + ' ' + pay; if (pay === 'USDG') { out = fmt(o * ethUsd * 0.997, 2) + ' USDG'; min = fmt(o * ethUsd * 0.997 * (1 - slip / 10000), 2) + ' USDG'; } }
+    const has = a > 0;
+    const quote = [{ k: 'You receive (estimate)', v: has ? out : '—' }, { k: 'Minimum you’ll get', v: has ? min : '—' }, { k: 'Price impact', v: tk.imp }, { k: 'Pool fee', v: '0.3%' }, { k: 'Slippage allowed', v: (slip / 100) + '%' }];
+    const needAck = tk.v === 'DANGER' || tk.v === 'UNKNOWN', canGo = has && (!needAck || ack);
+    const mk = (arr, cur, key) => arr.map(([val, l]) => ({ l, go: () => this.setState({ [key]: val }), bg: cur === val ? INK : '#fff', fg: cur === val ? PAPER : INK }));
+    const ps = phase;
+    const sheetPos = d ? 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:480px;max-height:92vh;overflow:auto;background:#F7F5EF;border-radius:28px;z-index:41;padding:24px;display:flex;flex-direction:column;gap:14px;box-shadow:0 40px 80px rgba(17,14,8,.35)' : 'position:fixed;left:0;right:0;bottom:0;max-height:92vh;overflow:auto;background:#F7F5EF;border-radius:28px 28px 0 0;z-index:41;padding:12px 20px 28px;display:flex;flex-direction:column;gap:14px;box-shadow:0 -20px 60px rgba(17,14,8,.3)';
+    const start = () => { if (!canGo) return; if (amount && this.state.note) this.setState({ note: false });
+      this.setState({ phase: 'wallet' }); this.k1 = setTimeout(() => this.setState({ phase: 'chain' }), 1400); this.k2 = setTimeout(() => this.setState({ phase: 'done' }), 3000); };
+    return {
+      padL: d ? '248px' : '0', padB: d ? '0' : '104px', pad: d ? '40px 48px 56px' : '24px 20px 32px', title: d ? '52px' : '40px', cols: d ? 'minmax(0,1.1fr) minmax(0,.9fr)' : '1fr',
+      recent, tk, stages, el, isLoading: st === 'loading', isEmpty: st === 'empty', isError: st === 'error', isReady: st === 'ready',
+      openBuy: () => this.setState({ sheet: 'buy', ack: false, phase: 'form', note: false }), openSell: () => this.setState({ sheet: 'sell', ack: false, phase: 'form', note: false }),
+      closeSheet: () => { if (ps === 'wallet' || ps === 'chain') return; this.setState({ sheet: null, ack: false, phase: 'form' }); },
+      sheetOpen: !!sheet, sheetPos, sheetTitle: (buy ? 'Buy ' : 'Sell ') + tk.sym, sideNoun: buy ? 'purchase' : 'sale',
+      pDone: ps === 'done', pOff: swapOff && ps !== 'done', pForm: !swapOff && ps === 'form', pSending: !swapOff && (ps === 'wallet' || ps === 'chain'),
+      sendTitle: ps === 'wallet' ? 'Confirm in your wallet (1 of 1)…' : 'Waiting for the network…', sendBody: ps === 'wallet' ? 'Your wallet is asking you to approve this trade. Nothing is sent until you do.' : 'Your trade was sent. We’re waiting for it to be confirmed on Robinhood Chain.',
+      isBuy: buy, amount, setAmount: e => this.setState({ amount: e.target.value, ack: false }),
+      pays: mk([['ETH', 'ETH'], ['USDG', 'USDG']], pay, 'pay'), slips: mk([[50, '0.5%'], [100, '1%'], [300, '3%']], slip, 'slip'),
+      quote, firstTime: 'First time with this token: one one-time approval in your wallet, then the swap.', needAck, toggleAck: () => this.setState({ ack: !ack }), ackBg: ack ? INK : 'transparent', ackMark: ack ? '✓' : '',
+      ackText: tk.v === 'DANGER' ? 'I understand this token looks like a scam and I could lose everything I put in.' : 'I understand we couldn’t check this token and it may not be safe.',
+      note, confirm: start, cBg: canGo ? (tk.v === 'DANGER' ? '#C8281E' : INK) : '#D9D5C9', cFg: canGo ? '#fff' : '#6F6A5F', cLabel: !has ? 'Enter an amount' : needAck && !ack ? 'Tick the box above to continue' : 'Confirm in wallet'
+    };
+  }
+}
+
+</script>
+</body>
+</html>

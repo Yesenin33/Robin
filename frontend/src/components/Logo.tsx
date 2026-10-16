@@ -1,19 +1,19 @@
-/** The Chainfolio mark (a "C" ring with a coin dot, on Robinhood green) + wordmark. Geometry = public/mark.svg. */
-export function Mark({ size = 32 }: { size?: number }) {
+/** The Chainfolio mark: a lime "C" ring with a rising line, on ink. Geometry = public/mark.svg. */
+export function Mark({ size = 32, onDark = false }: { size?: number; onDark?: boolean }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 512 512" role="img" aria-label="Chainfolio" style={{ flex: 'none' }}>
-      <rect width="512" height="512" rx="120" fill="#00C805" />
-      <path d="M330.6 167.1A116 116 0 1 0 330.6 344.9" fill="none" stroke="#04210A" strokeWidth="58" strokeLinecap="round" />
-      <circle cx="356" cy="256" r="31" fill="#04210A" />
+    <svg width={size} height={size} viewBox="0 0 32 32" role="img" aria-label="Chainfolio" style={{ flex: 'none' }}>
+      <rect width="32" height="32" rx="9" fill={onDark ? '#1E1A10' : '#110E08'} />
+      <path d="M22 10.5A8.5 8.5 0 1 0 22 21.5" fill="none" stroke="#CCFF00" strokeWidth="3" strokeLinecap="round" />
+      <path d="M14 19l4-4 2 2 5-5.5" fill="none" stroke="#F7F5EF" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
 
-export function Logo({ size = 32 }: { size?: number }) {
+export function Logo({ size = 32, onDark = false }: { size?: number; onDark?: boolean }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: size * 0.3 }}>
-      <Mark size={size} />
-      <span style={{ fontWeight: 800, fontSize: size * 0.62, letterSpacing: '-.025em', color: 'var(--text)' }}>Chainfolio</span>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+      <Mark size={size} onDark={onDark} />
+      <span style={{ fontFamily: 'var(--serif)', fontSize: size * 0.75, letterSpacing: '-.02em', color: onDark ? '#F7F5EF' : 'var(--ink)' }}>Chainfolio</span>
     </span>
   )
 }

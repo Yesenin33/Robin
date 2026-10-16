@@ -50,11 +50,15 @@ export function WalletConnectPanel({ onConnected }: { onConnected: (t: TokenOut)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {error && <div className="notice-error" role="alert">{error}</div>}
-      <button className="btn btn-primary" style={{ height: 54 }} disabled={busy} onClick={primary}>
-        {busy ? 'Waiting for your wallet…' : 'Connect wallet'}
-      </button>
+      {busy ? (
+        <div style={{ height: 56, borderRadius: 99, background: '#D9D5C9', color: 'var(--muted)', fontWeight: 700, fontSize: 17, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+          <span className="spinner" style={{ width: 18, height: 18, borderWidth: 2.5, borderColor: '#B9B3A6', borderTopColor: '#110E08' }} />Waiting for your wallet…
+        </div>
+      ) : (
+        <button className="btn btn-primary" onClick={primary}>Connect wallet</button>
+      )}
       {busy && (
-        <div style={{ color: 'var(--muted-2)', fontSize: 13, textAlign: 'center', lineHeight: 1.45 }}>
+        <div style={{ color: 'var(--muted)', fontSize: 14, textAlign: 'center', lineHeight: 1.45 }}>
           Approve the request in your wallet app, then come back here.
         </div>
       )}
@@ -65,7 +69,7 @@ export function WalletConnectPanel({ onConnected }: { onConnected: (t: TokenOut)
         <button onClick={() => void openInBrowser()} style={linkStyle}>Open in browser instead</button>
       )}
       {!busy && !error && (
-        <div style={{ color: 'var(--muted-2)', fontSize: 13, textAlign: 'center', lineHeight: 1.45 }}>
+        <div style={{ color: 'var(--muted)', fontSize: 14, textAlign: 'center', lineHeight: 1.45 }}>
           Any Robinhood Chain wallet. Nothing to write down, nothing we can touch.
         </div>
       )}
@@ -73,4 +77,4 @@ export function WalletConnectPanel({ onConnected }: { onConnected: (t: TokenOut)
   )
 }
 
-const linkStyle = { background: 'none', border: 0, color: 'var(--muted-2)', fontSize: 13, padding: 6 } as const
+const linkStyle = { background: 'none', border: 0, color: 'var(--muted)', fontSize: 14, fontWeight: 600, padding: 8, minHeight: 44 } as const

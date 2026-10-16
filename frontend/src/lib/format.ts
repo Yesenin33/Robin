@@ -23,7 +23,7 @@ export const ago = (iso: string) => {
 
 export const isAddress = (v: string) => /^0x[a-fA-F0-9]{40}$/.test(v.trim())
 
-const PALETTE = ['#00C805', '#4A90E2', '#F5A524', '#B07CFF', '#FF7AB6', '#2ED3C6']
+const PALETTE = ['#E4DCC3', '#CFE3B4', '#F0D9A8', '#D8D2E8', '#C9DDE0', '#EBCFC4']
 export const colorFor = (seed: string) => {
   let h = 0
   for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#F7F5EF;font-family:'Albert Sans',system-ui,sans-serif;color:#110E08}a{color:#110E08}*{box-sizing:border-box}input{font-family:inherit}@keyframes cfshim{from{background-position:200% 0}to{background-position:-200% 0}}</style>
+</helmet>
+<div style="min-height:100vh;background:radial-gradient(ellipse 90% 30% at 50% -6%,rgba(204,255,0,.2),rgba(204,255,0,0) 100%),#F7F5EF;padding-left:{{ padL }};padding-bottom:{{ padB }}">
+  <dc-import name="AppNav" active="profile" hint-size="0px,0px"></dc-import>
+  <div style="max-width:1080px;margin:0 auto;padding:{{ pad }};display:flex;flex-direction:column;gap:24px">
+    <div style="font-family:'Newsreader',serif;font-size:{{ title }};letter-spacing:-.03em;line-height:1.05">Profile</div>
+
+    <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-direction:column;gap:14px"><sc-for list="{{ skel }}" as="k" hint-placeholder-count="4"><div style="height:96px;border-radius:22px;background:linear-gradient(90deg,#EEEADF,#F7F5EF,#EEEADF);background-size:200% 100%;animation:cfshim 1.4s ease-in-out infinite"></div></sc-for></div></sc-if>
+    <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;padding:80px 16px"><div style="width:56px;height:56px;border-radius:50%;background:#FCE6E2;color:#C8281E;font-family:'Newsreader',serif;font-size:30px;display:flex;align-items:center;justify-content:center">!</div><div style="font-family:'Newsreader',serif;font-size:32px;letter-spacing:-.02em">Couldn't load this</div><div style="color:#4A463D;font-size:16px;line-height:1.5">We couldn't load your profile. Your money is safe.</div><a href="?state=ready" style="margin-top:8px;height:52px;padding:0 32px;border-radius:99px;background:#110E08;color:#F7F5EF;font-weight:700;font-size:16px;display:inline-flex;align-items:center;text-decoration:none">Try again</a></div></sc-if>
+    <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-direction:column;gap:16px;align-items:flex-start"><div style="background:#fff;border-radius:18px;padding:18px 20px;font-size:16px;line-height:1.5;color:#4A463D;box-shadow:0 0 0 1px rgba(17,14,8,.07)">No wallet connected. Connect one to see your portfolio and get alerts.</div><a href="Connect.dc.html" style="height:52px;padding:0 32px;border-radius:99px;background:#110E08;color:#F7F5EF;font-weight:700;font-size:16px;display:inline-flex;align-items:center;text-decoration:none">Connect wallet</a></div></sc-if>
+
+    <sc-if value="{{ isReady }}" hint-placeholder-val="{{ false }}">
+      <div style="display:grid;grid-template-columns:{{ cols }};gap:24px;align-items:start">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="background:#110E08;color:#F7F5EF;border-radius:24px;padding:22px;display:flex;align-items:center;gap:14px"><div style="width:48px;height:48px;border-radius:50%;background:#CCFF00;color:#110E08;font-weight:700;display:flex;align-items:center;justify-content:center">0x</div><div style="flex:1"><div style="font-weight:700;font-size:17px;font-variant-numeric:tabular-nums">0x26a1…110a</div><div style="font-size:14px;color:#B9B3A6;margin-top:2px">Robinhood Chain · connected</div></div></div>
+          <div style="font-size:15px;font-weight:600;color:#5E594E;margin-top:8px">Alerts</div>
+          <div style="background:#fff;border-radius:22px;overflow:hidden;box-shadow:0 0 0 1px rgba(17,14,8,.07)">
+            <sc-for list="{{ toggles }}" as="t" hint-placeholder-count="2">
+              <div onClick="{{ t.flip }}" style="cursor:pointer;display:flex;align-items:center;gap:14px;padding:18px;border-top:1px solid rgba(17,14,8,.07);min-height:72px"><div style="flex:1"><div style="font-weight:700;font-size:16px">{{ t.label }}</div><div style="font-size:14px;color:#5E594E;margin-top:2px;line-height:1.4">{{ t.sub }}</div></div><div style="width:52px;height:32px;border-radius:99px;background:{{ t.bg }};position:relative;flex:none"><div style="position:absolute;top:3px;left:{{ t.left }};width:26px;height:26px;border-radius:50%;background:{{ t.knob }}"></div></div></div>
+            </sc-for>
+          </div>
+          <sc-if value="{{ linking }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#fff;border-radius:22px;padding:18px;display:flex;flex-direction:column;gap:12px;box-shadow:0 0 0 1px rgba(17,14,8,.07)">
+              <a href="https://t.me" style="height:52px;border-radius:99px;background:#110E08;color:#F7F5EF;font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:center;text-decoration:none">Open @chainfolio_bot</a>
+              <div style="font-size:14px;line-height:1.5;color:#4A463D">Tap the button and press Start. You're connected. On another device? Send the bot this code: <b style="color:#110E08;letter-spacing:.12em;font-variant-numeric:tabular-nums">482913</b></div>
+              <div style="display:flex;gap:8px"><input placeholder="Code from the bot" inputmode="numeric" maxlength="6" style="flex:1;min-width:0;height:48px;border-radius:99px;border:0;background:#F7F5EF;box-shadow:inset 0 0 0 1px rgba(17,14,8,.12);padding:0 18px;font-size:15px;outline:none"><button onClick="{{ tgConnect }}" style="height:48px;padding:0 20px;border-radius:99px;border:0;box-shadow:inset 0 0 0 1px rgba(17,14,8,.25);background:transparent;font-weight:700;font-size:15px;cursor:pointer;font-family:inherit">Connect</button></div>
+            </div>
+          </sc-if>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:15px;font-weight:600;color:#5E594E">Recent alerts · 1 new</div>
+          <div style="background:#fff;border-radius:22px;overflow:hidden;box-shadow:0 0 0 1px rgba(17,14,8,.07)">
+            <sc-for list="{{ alerts }}" as="a" hint-placeholder-count="3"><a href="{{ a.href }}" style="display:flex;align-items:center;gap:12px;padding:16px 18px;border-top:1px solid rgba(17,14,8,.07);text-decoration:none;color:#110E08"><div style="flex:1"><div style="font-weight:{{ a.fw }};font-size:15px">{{ a.t }}</div><div style="font-size:14px;color:#5E594E;margin-top:2px">{{ a.b }}</div></div><span style="width:8px;height:8px;border-radius:50%;background:{{ a.dot }};flex:none"></span></a></sc-for>
+          </div>
+          <div style="font-size:15px;font-weight:600;color:#5E594E;margin-top:8px">Settings</div>
+          <div style="background:#fff;border-radius:22px;overflow:hidden;box-shadow:0 0 0 1px rgba(17,14,8,.07)">
+            <sc-for list="{{ settings }}" as="s" hint-placeholder-count="4"><div style="display:flex;justify-content:space-between;align-items:center;padding:0 18px;height:56px;border-top:1px solid rgba(17,14,8,.07);font-size:16px;font-weight:600"><span>{{ s.k }}</span><span style="color:#5E594E;font-weight:500">{{ s.v }} ›</span></div></sc-for>
+          </div>
+          <a href="Landing.dc.html" style="margin-top:8px;height:56px;border-radius:99px;box-shadow:inset 0 0 0 1px rgba(200,40,30,.45);color:#C8281E;font-weight:700;font-size:16px;display:flex;align-items:center;justify-content:center;text-decoration:none">Sign out</a>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+  <dc-import name="ProtoDock" page="Profile" hint-size="0px,0px"></dc-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { w: window.innerWidth, push: true, tg: 'off' };
+  componentDidMount() { this.rs = () => this.setState({ w: window.innerWidth }); window.addEventListener('resize', this.rs); }
+  componentWillUnmount() { window.removeEventListener('resize', this.rs); }
+  renderVals() {
+    const d = this.state.w >= 1024, st = new URLSearchParams(window.location.search).get('state') || 'ready', { push, tg } = this.state, INK = '#110E08';
+    const mk = (label, sub, on, flip) => ({ label, sub, flip, bg: on ? INK : '#D9D5C9', knob: on ? '#CCFF00' : '#fff', left: on ? '23px' : '3px' });
+    return {
+      padL: d ? '248px' : '0', padB: d ? '0' : '104px', pad: d ? '40px 48px 56px' : '24px 20px 32px', title: d ? '52px' : '40px', cols: d ? '1fr 1fr' : '1fr',
+      isLoading: st === 'loading', isError: st === 'error', isEmpty: st === 'empty', isReady: st === 'ready', skel: [1, 2, 3, 4],
+      toggles: [mk('Phone alerts', 'Web Push · risky moves in your holdings', push, () => this.setState({ push: !push })), mk('Telegram alerts', tg === 'on' ? 'Connected. Alerts arrive in Telegram.' : 'Not connected. Tap to connect.', tg === 'on', () => this.setState({ tg: tg === 'off' ? 'linking' : 'off' }))],
+      linking: tg === 'linking', tgConnect: () => this.setState({ tg: 'on' }),
+      alerts: [{ t: 'PLUM liquidity dropped 40%', b: '12 min ago · tap to review', fw: 800, dot: '#0A8F0E', href: 'Safety.dc.html?t=1' }, { t: 'HOOD-X check refreshed: still clean', b: 'Yesterday', fw: 600, dot: 'transparent', href: 'Safety.dc.html?t=0' }, { t: 'Smart wallet 0x8c1e…a42f bought HOOD-X', b: '2 days ago', fw: 600, dot: 'transparent', href: 'Copy.dc.html' }],
+      settings: [{ k: 'Account', v: '0x26a1…110a' }, { k: 'Currency', v: 'USD' }, { k: 'Help & support', v: '' }, { k: 'Legal', v: '' }]
+    };
+  }
+}
+
+</script>
+</body>
+</html>

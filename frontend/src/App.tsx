@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
 import { Background } from './components/Background'
 import { TabBar } from './components/TabBar'
-import { TopNav } from './components/TopNav'
+import { Sidebar } from './components/Sidebar'
 import { toast, Toaster } from './components/ui'
 import { useAuth } from './lib/auth'
 import { linkTelegramWebApp } from './lib/telegram'
@@ -23,7 +23,7 @@ function AppLayout() {
   if (user.wallets.length === 0) return <div className="scroll"><ConnectGate /></div>
   return (
     <>
-      <TopNav />
+      <Sidebar />
       <div className="scroll"><Outlet /></div>
       <TabBar />
     </>
@@ -51,10 +51,11 @@ function TelegramBridge() {
 }
 
 export function App() {
+  const { pathname } = useLocation()
   return (
     <>
       <Background />
-      <div className="shell">
+      <div className={`shell${pathname.startsWith('/app') ? ' has-side' : ''}`}>
         <main className="phone">
           <Routes>
             <Route path="/" element={<div className="scroll"><Landing /></div>} />

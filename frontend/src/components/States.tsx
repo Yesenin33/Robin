@@ -1,11 +1,11 @@
+const Bar = ({ w, h, r = 8 }: { w: number | string; h: number; r?: number }) => <div className="skel" style={{ width: w, height: h, borderRadius: r }} />
+
 export function Skeleton({ rows = 4 }: { rows?: number }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }} aria-busy>
-      <div className="skel" style={{ width: 120, height: 16, borderRadius: 8 }} />
-      <div className="skel" style={{ width: 220, height: 44, borderRadius: 12 }} />
-      {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="card" style={{ height: 72, animation: 'cfpulse 1.4s ease-in-out infinite' }} />
-      ))}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }} aria-busy aria-label="Loading">
+      <Bar w={120} h={14} r={7} />
+      <Bar w={240} h={56} r={12} />
+      {Array.from({ length: rows }, (_, i) => <Bar key={i} w="100%" h={76} r={18} />)}
     </div>
   )
 }
@@ -18,27 +18,31 @@ export function ProgressState({ title, detail, elapsedS, onCancel, steps, curren
 }) {
   const slow = etaS != null && elapsedS > etaS * 2 + 10
   return (
-    <div className="center-state" role="status" aria-live="polite">
-      <div className="spinner" />
-      <div className="t-title">{title}</div>
-      <div className="t-body" style={{ color: 'var(--muted)' }}>{detail}</div>
+    <div className="card" role="status" aria-live="polite" style={{ padding: 28, borderRadius: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div className="spinner" style={{ width: 32, height: 32, flex: 'none' }} />
+        <div>
+          <div className="t-title">{title}</div>
+          <div className="num" style={{ fontSize: 14, color: 'var(--muted)', marginTop: 3 }}>
+            {elapsedS}s so far · {etaS != null ? `usually about ${etaS}s` : "we haven't timed this check yet"}
+          </div>
+        </div>
+      </div>
+      <div style={{ fontSize: 15, color: 'var(--body)' }}>{detail}</div>
       {steps && (
-        <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6, textAlign: 'left' }}>
+        <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {steps.map((t, i) => {
             const done = current != null && i < current, on = i === current
             return (
-              <li key={t} className="t-body" style={{ display: 'flex', gap: 10, alignItems: 'center', color: on ? 'var(--text)' : done ? 'var(--green-text)' : 'var(--faint)', fontWeight: on ? 700 : 500 }}>
-                <span aria-hidden style={{ width: 16, textAlign: 'center' }}>{done ? '✓' : on ? '›' : '·'}</span>{t}
+              <li key={t} style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 16, fontWeight: on ? 700 : 500, color: !done && !on ? 'var(--faint)' : 'var(--ink)' }}>
+                <span aria-hidden style={{ width: 22, height: 22, borderRadius: '50%', background: done ? 'var(--green)' : on ? 'var(--ink)' : '#CFCABD', color: 'var(--paper)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>{done ? '✓' : ''}</span>{t}
               </li>
             )
           })}
         </ol>
       )}
-      <div className="t-caption num">
-        {elapsedS}s so far · {etaS != null ? `usually about ${etaS}s` : "we haven't timed this check yet"}
-      </div>
-      {slow && <div className="t-caption" style={{ color: 'var(--amber-text)' }}>This is taking longer than usual. The data sources are slow right now.</div>}
-      <button className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={onCancel}>Stop waiting</button>
+      {slow && <div style={{ fontSize: 14, color: 'var(--amber-text)' }}>This is taking longer than usual. The data sources are slow right now.</div>}
+      <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={onCancel}>Stop waiting</button>
     </div>
   )
 }
@@ -46,10 +50,10 @@ export function ProgressState({ title, detail, elapsedS, onCancel, steps, curren
 export function ErrorState({ body, onRetry }: { body: string; onRetry: () => void }) {
   return (
     <div className="center-state">
-      <div className="state-icon" style={{ background: 'var(--red-soft)' }}>⚠️</div>
-      <div style={{ fontWeight: 800, fontSize: 20 }}>Couldn't load this</div>
-      <div className="t-body" style={{ color: 'var(--muted)' }}>{body} Your money is safe.</div>
-      <button className="btn btn-white btn-sm" style={{ marginTop: 8 }} onClick={onRetry}>Try again</button>
+      <div className="state-icon serif" style={{ background: 'var(--red-soft)', color: 'var(--red)', fontSize: 30 }}>!</div>
+      <div className="serif" style={{ fontSize: 32, letterSpacing: '-.02em' }}>Couldn't load this</div>
+      <div style={{ color: 'var(--body)', fontSize: 16, lineHeight: 1.5, maxWidth: 340 }}>{body} Your money is safe.</div>
+      <button className="btn btn-primary" style={{ marginTop: 8, height: 52 }} onClick={onRetry}>Try again</button>
     </div>
   )
 }
@@ -59,10 +63,10 @@ export function EmptyState({ emoji, title, body, cta, onCta }: {
 }) {
   return (
     <div className="center-state">
-      <div className="state-icon card">{emoji}</div>
-      <div style={{ fontWeight: 800, fontSize: 20 }}>{title}</div>
-      <div style={{ color: 'var(--muted)', fontSize: 15, lineHeight: 1.5 }}>{body}</div>
-      {cta && <button className="btn btn-primary btn-sm" style={{ marginTop: 8 }} onClick={onCta}>{cta}</button>}
+      <div className="state-icon card" aria-hidden>{emoji}</div>
+      <div className="serif" style={{ fontSize: 32, letterSpacing: '-.02em' }}>{title}</div>
+      <div style={{ color: 'var(--body)', fontSize: 16, lineHeight: 1.5, maxWidth: 360 }}>{body}</div>
+      {cta && <button className="btn btn-primary" style={{ marginTop: 8, height: 52 }} onClick={onCta}>{cta}</button>}
     </div>
   )
 }

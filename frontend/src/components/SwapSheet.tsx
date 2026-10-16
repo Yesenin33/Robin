@@ -10,10 +10,10 @@ import { Sheet } from './Sheet'
 import { toast } from './ui'
 
 const VERDICT_STYLE = {
-  CLEAN: { c: 'var(--green)', bg: 'var(--green-soft)', t: 'Looks healthy' },
-  RISKY: { c: 'var(--amber)', bg: 'var(--amber-soft)', t: 'Proceed with care' },
-  DANGER: { c: 'var(--red)', bg: 'var(--red-soft)', t: 'Very likely a scam' },
-  UNKNOWN: { c: 'var(--muted-2)', bg: 'var(--card)', t: "We couldn't check this token" },
+  CLEAN: { soft: '#E4F6DD', ink: '#0D3B10', word: 'Clean' },
+  RISKY: { soft: '#FFEFCC', ink: '#4A2C00', word: 'Risky' },
+  DANGER: { soft: '#FCE6E2', ink: '#5E120C', word: 'Danger' },
+  UNKNOWN: { soft: '#ECE9E1', ink: '#110E08', word: 'Unknown' },
 } as const
 const SLIPPAGE = [50, 100, 300]
 const EXPLORER = 'https://robinhoodchain.blockscout.com'
@@ -109,21 +109,21 @@ export function SwapSheet({ side, safety, onClose, fallbackUrl }: {
 
   const title = `${side === 'buy' ? 'Buy' : 'Sell'} ${sym}`
   const verdictBlock = (
-    <div style={{ background: vs.bg, boxShadow: `inset 0 0 0 1px ${vs.c}`, borderRadius: 'var(--r2)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div className="t-caption num">{sym} · {shortAddr(safety.address)} — a name is not an identifier, check the address</div>
-      <div style={{ color: vs.c, fontWeight: 800, fontSize: 14 }}>{safety.verdict} · {vs.t}</div>
-      <div className="t-caption" style={{ color: 'var(--text-2)' }}>{safety.summary}</div>
+    <div style={{ background: vs.soft, color: vs.ink, borderRadius: 16, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div className="num" style={{ fontSize: 12, opacity: .75 }}>{sym} · {shortAddr(safety.address)} — a name is not an identifier, check the address</div>
+      <div style={{ fontSize: 14, lineHeight: 1.45 }}><b>{safety.verdict}</b> · {safety.summary}</div>
     </div>
   )
+  const sheetButton = { display: 'flex', width: '100%' } as const
 
   // ---- the in-app flow is not available: say why, keep the external link as a fallback ----
   if (cfg === 'off' || acct === 'none') {
     return (
       <Sheet title={title} onClose={onClose}>
         {verdictBlock}
-        <div className="notice">{cfg === 'off' ? "Trading inside Chainfolio isn't switched on yet." : "Connect a wallet that can send transactions to trade here."}</div>
+        <div className="notice">{cfg === 'off' ? "Trading inside Chainfolio isn't switched on yet." : 'Connect a wallet that can send transactions to trade here.'}</div>
         {fallbackUrl
-          ? <a className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }} href={fallbackUrl} target="_blank" rel="noopener noreferrer">Open in Uniswap</a>
+          ? <a className="btn btn-primary" style={sheetButton} href={fallbackUrl} target="_blank" rel="noopener noreferrer">Open in Uniswap</a>
           : <button className="btn btn-ghost" onClick={onClose}>Close</button>}
       </Sheet>
     )
@@ -133,7 +133,7 @@ export function SwapSheet({ side, safety, onClose, fallbackUrl }: {
     return (
       <Sheet title="Done" onClose={onClose}>
         <div className="t-body">Your {side === 'buy' ? 'purchase' : 'sale'} of {sym} went through.</div>
-        <a className="num" style={{ wordBreak: 'break-all', fontSize: 13 }} href={`${EXPLORER}/tx/${phase.hash}`} target="_blank" rel="noopener noreferrer">{phase.hash}</a>
+        <a className="num" style={{ wordBreak: 'break-all', fontSize: 13, color: 'var(--green-text)' }} href={`${EXPLORER}/tx/${phase.hash}`} target="_blank" rel="noopener noreferrer">{phase.hash}</a>
         <button className="btn btn-primary" onClick={() => { toast('Portfolio will refresh'); onClose() }}>Back to the app</button>
       </Sheet>
     )
@@ -143,51 +143,73 @@ export function SwapSheet({ side, safety, onClose, fallbackUrl }: {
   const q = quote
   const outText = q ? `${formatUnits(q.amount_out_raw, q.decimals_out)} ${side === 'buy' ? sym : q.pay_with}` : '—'
   const minText = q ? `${formatUnits(q.min_out_raw, q.decimals_out)} ${side === 'buy' ? sym : q.pay_with}` : '—'
-  const label = sending
-    ? phase.what === 'wallet' ? `Confirm in your wallet (${phase.i + 1} of ${q?.steps.length ?? 1})…` : 'Waiting for the network…'
-    : risky && !ack ? 'Tick the box above to continue' : (q?.steps.length ?? 1) > 1 ? 'Approve & swap' : 'Confirm in wallet'
+  const blocked = !q || (risky && !ack)
+  const label = !amountOk ? 'Enter an amount' : !q ? 'Waiting for a quote…' : risky && !ack ? 'Tick the box above to continue' : (q.steps.length) > 1 ? 'Approve & swap' : 'Confirm in wallet'
+
+  if (sending) {
+    const step = phase.i + 1, of = q?.steps.length ?? 1
+    return (
+      <Sheet title={title} onClose={() => undefined}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, textAlign: 'center', padding: '24px 0' }} role="status" aria-live="polite">
+          <div className="spinner" />
+          <div style={{ fontWeight: 700, fontSize: 18 }}>{phase.what === 'wallet' ? `Confirm in your wallet (${step} of ${of})…` : 'Waiting for the network…'}</div>
+          <div style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.5, maxWidth: 300 }}>
+            {phase.what === 'wallet' ? 'Your wallet is asking you to approve this trade. Nothing is sent until you do.'
+              : "Your trade was sent. We're waiting for it to be confirmed on Robinhood Chain."}
+          </div>
+        </div>
+      </Sheet>
+    )
+  }
 
   return (
-    <Sheet title={title} onClose={sending ? () => undefined : onClose}>
+    <Sheet title={title} onClose={onClose}>
       {verdictBlock}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-        <input className="input" style={{ flex: 1, minWidth: 0 }} inputMode="decimal" placeholder={side === 'buy' ? `Amount of ${payWith} to spend` : `Amount of ${sym} to sell`}
-          value={amountText} onChange={e => setAmountText(e.target.value)} aria-label="Amount" disabled={sending} />
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input className="input" style={{ flex: 1, minWidth: 0, fontSize: 17, fontWeight: 600 }} inputMode="decimal"
+          placeholder={side === 'buy' ? `Amount of ${payWith} to spend` : `Amount of ${sym} to sell`}
+          value={amountText} onChange={e => setAmountText(e.target.value)} aria-label="Amount" />
         <div role="group" aria-label={side === 'buy' ? 'Pay with' : 'Receive'} style={{ display: 'flex', gap: 4 }}>
           {(['ETH', 'USDG'] as const).map(p => (
-            <button key={p} className={`chip ${payWith === p ? 'on' : ''}`} disabled={sending} onClick={() => setPayWith(p)} style={{ alignItems: 'center' }}><b>{p}</b></button>
+            <button key={p} className={`opt big ${payWith === p ? 'on' : ''}`} onClick={() => setPayWith(p)}>{p}</button>
           ))}
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <span className="t-caption">Slippage</span>
-        {SLIPPAGE.map(b => <button key={b} className={`chip ${slip === b ? 'on' : ''}`} disabled={sending} onClick={() => setSlip(b)} style={{ alignItems: 'center', minWidth: 56 }}><b>{pctText(b)}</b></button>)}
+        {SLIPPAGE.map(b => <button key={b} className={`opt ${slip === b ? 'on' : ''}`} onClick={() => setSlip(b)}>{pctText(b)}</button>)}
       </div>
 
       {qBusy && <div className="t-caption" role="status">Getting a live quote…</div>}
       {qErr && <div className="notice-error" role="alert">{qErr}</div>}
       {q && (
-        <div className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="card" style={{ borderRadius: 18, padding: '6px 16px' }}>
           <div className="row-kv"><span>You receive (estimate)</span><b className="num">{outText}</b></div>
           <div className="row-kv"><span>Minimum you'll get</span><b className="num">{minText}</b></div>
           <div className="row-kv"><span>Price impact</span><b className="num">{q.price_impact_pct == null ? "can't estimate" : `${q.price_impact_pct}%`}</b></div>
           <div className="row-kv"><span>Pool fee</span><b className="num">{pctText(q.fee_bps)}</b></div>
           <div className="row-kv"><span>Slippage allowed</span><b className="num">{pctText(q.slippage_bps)}</b></div>
-          {q.steps.length > 1 && <div className="t-caption">First time with this token: {q.steps.length - 1} one-time approval{q.steps.length > 2 ? 's' : ''} in your wallet, then the swap.</div>}
         </div>
       )}
-      {!q && !qBusy && !qErr && amountOk && <div className="t-caption">Enter an amount to see a live quote.</div>}
+      {q && q.steps.length > 1 && (
+        <div className="t-caption" style={{ fontWeight: 500 }}>
+          First time with this token: {q.steps.length - 1} one-time approval{q.steps.length > 2 ? 's' : ''} in your wallet, then the swap.
+        </div>
+      )}
+      {!q && !qBusy && !qErr && amountOk && <div className="t-caption" style={{ fontWeight: 500 }}>Enter an amount to see a live quote.</div>}
 
       {risky && q && (
-        <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 14, lineHeight: '20px', minHeight: 44 }}>
-          <input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} style={{ width: 24, height: 24, marginTop: 0, flex: 'none' }} />
-          <span>{safety.verdict === 'DANGER' ? 'I understand this token looks like a scam and I could lose everything I put in.' : "I understand we couldn't check this token and it may not be safe."}</span>
-        </label>
+        <div onClick={() => setAck(a => !a)} role="checkbox" aria-checked={ack} tabIndex={0}
+          onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setAck(a => !a) } }}
+          style={{ display: 'flex', gap: 12, alignItems: 'flex-start', cursor: 'pointer', fontSize: 14, lineHeight: 1.45, minHeight: 44 }}>
+          <span style={{ width: 26, height: 26, borderRadius: 8, background: ack ? 'var(--ink)' : 'transparent', boxShadow: 'inset 0 0 0 1.5px #110E08', color: 'var(--lime)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontWeight: 700 }}>{ack ? '✓' : ''}</span>
+          {safety.verdict === 'DANGER' ? 'I understand this token looks like a scam and I could lose everything I put in.' : "I understand we couldn't check this token and it may not be safe."}
+        </div>
       )}
       {note && <div className="notice" role="status">{note}</div>}
-      <button className="btn btn-primary" disabled={!q || sending || (risky && !ack)} onClick={() => void confirm()}
-        style={safety.verdict === 'DANGER' ? { background: 'var(--red)', color: '#fff', boxShadow: 'none' } : undefined}>{label}</button>
-      {fallbackUrl && <a className="t-caption" style={{ textAlign: 'center' }} href={fallbackUrl} target="_blank" rel="noopener noreferrer">Or open this trade in Uniswap</a>}
+      <button className="btn" disabled={blocked} onClick={() => void confirm()}
+        style={{ background: blocked ? '#D9D5C9' : safety.verdict === 'DANGER' ? 'var(--red)' : 'var(--ink)', color: blocked ? '#6F6A5F' : safety.verdict === 'DANGER' ? '#fff' : 'var(--paper)', opacity: 1 }}>{label}</button>
+      {fallbackUrl && <a className="t-caption" style={{ textAlign: 'center', fontWeight: 500 }} href={fallbackUrl} target="_blank" rel="noopener noreferrer">Or open this trade in Uniswap</a>}
     </Sheet>
   )
 }

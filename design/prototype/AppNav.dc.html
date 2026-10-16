@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+</helmet>
+<div>
+  <sc-if value="{{ desk }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:0;top:0;bottom:0;width:248px;z-index:10;background:#110E08;color:#F7F5EF;display:flex;flex-direction:column;padding:28px 16px 20px;gap:28px;font-family:'Albert Sans',system-ui,sans-serif">
+      <a href="Landing.dc.html" style="display:flex;align-items:center;gap:10px;padding:0 8px;text-decoration:none;color:#F7F5EF">
+        <svg width="32" height="32" viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="#1E1A10"></rect><path d="M22 10.5A8.5 8.5 0 1 0 22 21.5" fill="none" stroke="#CCFF00" stroke-width="3" stroke-linecap="round"></path><path d="M14 19l4-4 2 2 5-5.5" fill="none" stroke="#F7F5EF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        <span style="font-family:'Newsreader',serif;font-size:24px;letter-spacing:-.02em">Chainfolio</span>
+      </a>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+          <a href="{{ t.href }}" style="height:44px;border-radius:12px;background:{{ t.sbg }};color:{{ t.sfg }};display:flex;align-items:center;gap:12px;padding:0 12px;font-size:15px;font-weight:600;text-decoration:none">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{ t.sic }}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="{{ t.d }}"></path></svg>{{ t.label }}
+          </a>
+        </sc-for>
+      </div>
+      <a href="Profile.dc.html" style="margin-top:auto;display:flex;align-items:center;gap:10px;padding:12px;border-radius:14px;background:rgba(255,255,255,.06);text-decoration:none;color:#F7F5EF">
+        <div style="width:32px;height:32px;border-radius:50%;background:#CCFF00;color:#110E08;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center">0x</div>
+        <div style="min-width:0"><div style="font-size:14px;font-weight:600">0x26a1…110a</div><div style="font-size:12px;color:#B9B3A6;margin-top:1px">Robinhood Chain</div></div>
+      </a>
+    </div>
+  </sc-if>
+  <sc-if value="{{ mobile }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;background:#F7F5EF;box-shadow:0 -1px 0 rgba(17,14,8,.08);padding:8px 8px max(16px,env(safe-area-inset-bottom));font-family:'Albert Sans',system-ui,sans-serif">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+        <a href="{{ t.href }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:2px 0;text-decoration:none;color:{{ t.fg }}">
+          <span style="width:56px;height:30px;border-radius:99px;background:{{ t.pill }};display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="{{ t.d }}"></path></svg></span>
+          <span style="font-size:12px;font-weight:{{ t.fw }}">{{ t.label }}</span>
+        </a>
+      </sc-for>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;active&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;portfolio&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;portfolio&quot;,&quot;safety&quot;,&quot;copy&quot;,&quot;profile&quot;]}}">
+class Component extends DCLogic {
+  state = { w: window.innerWidth };
+  componentDidMount() { this.rs = () => this.setState({ w: window.innerWidth }); window.addEventListener('resize', this.rs); }
+  componentWillUnmount() { window.removeEventListener('resize', this.rs); }
+  renderVals() {
+    const desk = this.state.w >= 1024, act = this.props.active;
+    const defs = [['portfolio', 'Portfolio', 'Portfolio.dc.html', 'M21 12A9 9 0 1 1 12 3v9z'], ['safety', 'Safety', 'Safety.dc.html', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z M9 12l2 2 4-4'], ['copy', 'Copy', 'Copy.dc.html', 'M8 8h12v12H8z M4 16V4h12'], ['profile', 'Profile', 'Profile.dc.html', 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M4 21c0-4 4-6 8-6s8 2 8 6']];
+    const tabs = defs.map(([k, label, href, d]) => { const a = act === k; return { label, href, d, fg: a ? '#110E08' : '#5E594E', fw: a ? 700 : 600, pill: a ? '#CCFF00' : 'transparent', sbg: a ? 'rgba(255,255,255,.09)' : 'transparent', sfg: a ? '#F7F5EF' : '#B9B3A6', sic: a ? '#CCFF00' : '#B9B3A6' }; });
+    return { desk, mobile: !desk, tabs };
+  }
+}
+
+</script>
+</body>
+</html>
