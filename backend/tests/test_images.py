@@ -50,3 +50,35 @@ async def test_art_learned_for_an_indexed_token_is_stored_for_next_time(db, redi
     market = Market({a: {"price_usd": 1.0, "liquidity_usd": 1e9, "image_url": "https://cdn.test/a.png"}})
     await PortfolioService(db, redis, held_rpc({a: 10**18}, []), market).get(OWNER)
     assert (await db.get(Token, 1)).image_url == "https://cdn.test/a.png"
+
+
+async def test_art_without_a_dexscreener_image_comes_from_geckoterminal(db, redis):
+    """Measured: DexScreener has no art for this chain (0 of the owner's 47 holdings, WETH included), while
+    GeckoTerminal carries it for ~99 % of the catalogue. A held token with no art must ask the other source
+    and remember the answer, instead of showing a generated mark forever."""
+    a = mk(1)
+    db.add(Token(address=a, symbol="AAA", decimals=18, price_usd=1.0, liquidity_usd=1e9))
+    await db.commit()
+    await check(db, 1)
+    market = Market(art={a: "https://assets.geckoterminal.test/a.png"})
+    p = await PortfolioService(db, redis, held_rpc({a: 10**18}, []), market).get(OWNER)
+    assert p.holdings[0].image_url == "https://assets.geckoterminal.test/a.png"
+    assert (await db.get(Token, 1)).image_url == "https://assets.geckoterminal.test/a.png"  # no second fetch
+
+
+async def test_gecko_images_batches_filters_and_caches(redis):
+    calls: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(str(req.url))
+        return httpx.Response(200, json={"data": [
+            {"attributes": {"address": "0x" + "11" * 20, "image_url": "https://assets.gecko.test/a.png"}},
+            {"attributes": {"address": "0x" + "22" * 20, "image_url": None}},
+            {"attributes": {"address": "0x" + "33" * 20, "image_url": "http://insecure.test/x.png"}},
+        ]})
+
+    m = MarketClient(redis, httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    got = await m.gecko_images(["0x" + "11" * 20, "0x" + "22" * 20, "0x" + "33" * 20])
+    assert got == {"0x" + "11" * 20: "https://assets.gecko.test/a.png"}  # http:// is not art we can render
+    assert await m.gecko_images(["0x" + "11" * 20, "0x" + "22" * 20]) == {"0x" + "11" * 20: "https://assets.gecko.test/a.png"}
+    assert len(calls) == 1  # the hit AND the miss are cached: a miss is re-asked later, not per page load

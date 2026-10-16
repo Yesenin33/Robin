@@ -38,6 +38,9 @@ class FakeMarket:
     async def tokens_market(self, addresses):
         return {}
 
+    async def gecko_images(self, addresses):
+        return {}
+
 
 @pytest.fixture
 async def svc(db, redis):
@@ -161,14 +164,18 @@ def held_rpc(balances: dict[str, int], seen: list[str], metas: dict[str, tuple[s
 
 
 class Market(FakeMarket):
-    def __init__(self, data=None, boom=False):
-        self.data, self.boom, self.asked = data or {}, boom, []
+    def __init__(self, data=None, boom=False, art=None):
+        self.data, self.boom, self.asked, self.art = data or {}, boom, [], art or {}
 
     async def tokens_market(self, addresses):
         self.asked.append(list(addresses))
         if self.boom:
             raise RuntimeError("dexscreener down")
         return {a: self.data[a] for a in addresses if a in self.data}
+
+    async def gecko_images(self, addresses):
+        """The other source: the one that has art for this chain."""
+        return {a: self.art[a] for a in addresses if a in self.art}
 
 
 def mk(i: int) -> str:

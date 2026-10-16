@@ -139,16 +139,32 @@ class PortfolioService:
             market = {}
         out: list[tuple[Any, int]] = []
         learned = False
+        # Art for the held tokens we have none for. Fetched only for those (never one call per token) and
+        # remembered, because a logo we have is a logo we never fetch again.
+        gecko_art: dict[str, str] = {}
+        need_art = [a for a in held if not (by_addr.get(a) is not None and by_addr[a].image_url)]
+        if need_art:
+            try:
+                gecko_art = await self.market.gecko_images(need_art)
+            except Exception as e:  # noqa: BLE001 — decoration: a failed lookup must not fail the page
+                log.warning("portfolio_art_failed", error=str(e))
+                gecko_art = {}
+            for a, u in gecko_art.items():
+                t = by_addr.get(a)
+                if t is not None and not t.image_url:
+                    t.image_url = u
+                    learned = True
         for a, raw in held.items():
             m = market.get(a) or {}
+            art = gecko_art.get(a)
             if a in by_addr:
                 t = by_addr[a]
                 if m.get("image_url") and not t.image_url:
                     t.image_url = m["image_url"]  # remember the art: no per-render fetch from now on
                     learned = True
-                if (t.price_usd is None and m.get("price_usd") is not None) or (not t.image_url and m.get("image_url")):
+                if (t.price_usd is None and m.get("price_usd") is not None) or (not t.image_url and (m.get("image_url") or art)):
                     t = SimpleNamespace(id=t.id, address=a, symbol=t.symbol, name=t.name, decimals=t.decimals,
-                                        image_url=t.image_url or m.get("image_url"),
+                                        image_url=t.image_url or m.get("image_url") or art,
                                         price_usd=t.price_usd if t.price_usd is not None else m.get("price_usd"),
                                         price_change_24h=t.price_change_24h if t.price_change_24h is not None else m.get("price_change_24h"),
                                         liquidity_usd=t.liquidity_usd if t.liquidity_usd is not None else m.get("liquidity_usd"))
@@ -156,7 +172,7 @@ class PortfolioService:
                 meta = metas.get(a) or {}
                 t = SimpleNamespace(id=None, address=a, symbol=meta.get("symbol") or m.get("symbol"),
                                     name=meta.get("name") or m.get("name"), decimals=meta.get("decimals"),
-                                    image_url=m.get("image_url"),
+                                    image_url=m.get("image_url") or art,
                                     price_usd=m.get("price_usd") if meta.get("decimals") is not None else None,
                                     price_change_24h=m.get("price_change_24h"), liquidity_usd=m.get("liquidity_usd"))
             out.append((t, raw))
