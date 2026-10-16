@@ -48,17 +48,27 @@ class PortfolioService:
 
     async def _compute(self, address: str) -> PortfolioOut:
         tokens = (await self.db.execute(select(Token))).scalars().all()
+        by_addr = {t.address.lower(): t for t in tokens}
         native_raw = await self.rpc.native_balance(address)
-        balances = await self.rpc.erc20_balances(address, [t.address for t in tokens])
+
+        # Ask the chain what this wallet actually holds, once, instead of one balanceOf per known token.
+        # The all-token scan is kept only as a fallback, and there it is bounded to tokens we can price.
+        held = await self.rpc.held_erc20_balances(address)
+        if held is None:
+            priced = [t for t in tokens if t.price_usd is not None]
+            pairs = list(zip(priced, await self.rpc.erc20_balances(address, [t.address for t in priced])))
+        else:
+            pairs = [(by_addr[a], raw) for a, raw in held.items() if a in by_addr]
+
         avg_costs = await self._avg_costs(address)
-        verdicts = await self._verdicts([t.id for t in tokens])
+        verdicts = await self._verdicts([t.id for t, _ in pairs])
 
         holdings: list[Holding] = []
         if native_raw:
             amt = native_raw / 1e18
             px = await self.market.native_price_usd(self.s.native_symbol)
             holdings.append(self._holding(NATIVE, self.s.native_symbol, "Ether", amt, px, None, avg_costs.get(NATIVE)))
-        for t, raw in zip(tokens, balances):
+        for t, raw in pairs:
             if not raw:
                 continue
             amt = raw / 10 ** (t.decimals or 18)

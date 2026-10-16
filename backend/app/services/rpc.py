@@ -149,6 +149,39 @@ class RPCClient:
         calls = [("eth_call", [{"to": t, "data": SEL_BALANCE_OF + _pad(owner)}, "latest"]) for t in tokens]
         return [decode_uint(r) for r in await self.batch(calls)]
 
+    async def held_erc20_balances(self, owner: str) -> dict[str, int] | None:
+        """Every NON-ZERO ERC-20 balance of a wallet in ONE call — {address: raw amount}, or None when no
+        configured endpoint offers it (the caller then falls back).
+
+        `alchemy_getTokenBalances` is an Alchemy extension. The portfolio used to send one balanceOf per
+        known token instead — 2 900 of them here, ~58 batch requests per page load — which blew the free
+        tier's compute-units-per-second budget and turned /portfolio into a 502 for every wallet, including
+        wallets that hold nothing.
+        """
+        for url in list(self.urls):
+            try:
+                resp = await self._client.post(
+                    url, json=[{"jsonrpc": "2.0", "id": 1, "method": "alchemy_getTokenBalances",
+                                "params": [owner, "erc20"]}], timeout=20.0,
+                )
+                body = resp.json()
+            except (httpx.HTTPError, ValueError):
+                continue
+            first = body[0] if isinstance(body, list) and body else (body if isinstance(body, dict) else None)
+            if resp.status_code != 200 or not isinstance(first, dict) or "result" not in first:
+                continue  # the method isn't supported here (or the node refused): try the next endpoint
+            out: dict[str, int] = {}
+            for item in (first.get("result") or {}).get("tokenBalances") or []:
+                try:
+                    raw = int(str(item.get("tokenBalance") or "0x0"), 16)
+                except (TypeError, ValueError):
+                    continue
+                addr = str(item.get("contractAddress") or "").lower()
+                if raw > 0 and is_address(addr):
+                    out[addr] = raw
+            return out
+        return None
+
     async def erc20_meta(self, token: str) -> dict:
         sels = [SEL_SYMBOL, SEL_NAME, SEL_DECIMALS, SEL_TOTAL_SUPPLY]
         res = await self.batch([("eth_call", [{"to": token, "data": s}, "latest"]) for s in sels])

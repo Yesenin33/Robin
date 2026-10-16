@@ -83,3 +83,42 @@ async def test_portfolio_is_cached(svc, redis):
 async def test_invalid_address(svc):
     with pytest.raises(ValueError):
         await svc.get("0x123")
+
+
+def indexed_rpc(seen: list[str]) -> RPCClient:
+    """An endpoint that indexes wallet balances (alchemy_getTokenBalances) — the portfolio must use it
+    ONCE and never send a balanceOf per known token."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls = body if isinstance(body, list) else [body]
+        out = []
+        for c in calls:
+            seen.append(c["method"])
+            if c["method"] == "eth_getBalance":
+                res = hex(10**18)
+            elif c["method"] == "alchemy_getTokenBalances":
+                res = {"tokenBalances": [
+                    {"contractAddress": HOOD, "tokenBalance": hex(4 * 10**18)},
+                    {"contractAddress": EMPTY, "tokenBalance": "0x0"},          # zero -> dropped by the node
+                    {"contractAddress": "0x" + "dd" * 20, "tokenBalance": hex(7)},  # unknown to us -> ignored
+                ]}
+            else:
+                return httpx.Response(400)
+            out.append({"jsonrpc": "2.0", "id": c.get("id"), "result": res})
+        return httpx.Response(200, json=out if isinstance(body, list) else out[0])
+
+    return RPCClient("http://rpc", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+
+
+async def test_portfolio_asks_the_chain_once_instead_of_per_token(db, redis):
+    seen: list[str] = []
+    svc = PortfolioService(db, redis, indexed_rpc(seen), FakeMarket())
+    db.add(Token(address=HOOD, symbol="HOOD-X", name="Hood Index", decimals=18, price_usd=1250))
+    db.add(Token(address=PLUM, symbol="PLUM", decimals=9, price_usd=2.826))
+    await db.commit()
+
+    p = await svc.get(OWNER)
+    assert [h.symbol for h in p.holdings] == ["HOOD-X", "ETH"]  # PLUM isn't held; the unknown token is skipped
+    assert seen.count("alchemy_getTokenBalances") == 1
+    assert "eth_call" not in seen  # no balanceOf sweep at all
+
