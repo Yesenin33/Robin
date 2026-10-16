@@ -134,7 +134,7 @@ def test_unknown_verdict_is_neutral_everywhere():
     assert out.risks[0].startswith("We couldn't check this token:")
     assert [m.value for m in out.metrics] == ["—", "—", "—", "—"]
     assert {m.tone for m in out.metrics} == {"unknown"}  # grey, not the "ok" green
-    assert all(m.hint == "We couldn't get this" for m in out.metrics)
+    assert all(m.hint == "We couldn't check this" for m in out.metrics)
 
 
 async def test_unknown_is_stored_cached_and_served_without_a_score(db, redis):

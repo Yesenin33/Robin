@@ -63,18 +63,31 @@ async def test_bulk_queue_is_capped_and_refresh_stale_only_fills_the_room(appdb,
 
 
 async def test_drain_runs_scans_concurrently_and_bounded(appdb, redis, monkeypatch):
+    """Measured by overlap, not wall-clock: a time bound like "< 0.7 s" fails on a slow or busy host."""
+    import threading
+    import time
+
+    state = {"now": 0, "peak": 0, "done": 0}
+    lock = threading.Lock()
+
     class Slow(FakeEngine):
         def scan(self, address):
-            time.sleep(0.25)
+            with lock:
+                state["now"] += 1
+                state["peak"] = max(state["peak"], state["now"])
+            time.sleep(0.15)  # long enough that the other scans started meanwhile are seen as overlapping
+            with lock:
+                state["now"] -= 1
+                state["done"] += 1
             return super().scan(address)
 
     monkeypatch.setattr(scan_job, "get_engine", lambda: Slow(report()))
-    monkeypatch.setattr(get_settings(), "scan_concurrency", 4)
-    for a in OTHERS[:4]:
+    monkeypatch.setattr(get_settings(), "scan_concurrency", 3)
+    for a in OTHERS[:6]:
         await scan_job.enqueue_scan(redis, a)
-    t0 = time.perf_counter()
-    assert await scan_job.drain_queue(redis, max_items=4) == 4
-    assert time.perf_counter() - t0 < 0.7  # sequential would take >= 1.0 s
+    assert await scan_job.drain_queue(redis, max_items=6) == 6
+    assert state["done"] == 6
+    assert 2 <= state["peak"] <= 3  # concurrent (not sequential) and never above SCAN_CONCURRENCY
     monkeypatch.setattr(get_settings(), "scan_bulk_per_tick", 2)
     for a in OTHERS:
         await scan_job.enqueue_scan(redis, a)

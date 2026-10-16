@@ -3,6 +3,7 @@ import pytest
 from sqlalchemy import select
 
 from app.jobs import copy_job, discovery_job, rank_job
+from app.services.intelligence import config as icfg
 from app.models import Alert, CopyEvent, SafetyScore, Token
 from app.services.chain_index import POOL_MANAGER
 from app.services.intelligence.rpc import Rpc
@@ -56,6 +57,7 @@ async def test_follow_backfills_from_explorer_then_collects_live(client, signed_
         }], "next_page_params": None}
 
     monkeypatch.setattr(copy_job, "get_json", explorer)
+    monkeypatch.setitem(icfg._overrides, "EXPLORER_API_URL", "https://explorer.test")  # tests start with no explorer
     r = await follow(client, headers)
     assert r == {"address": WHALE, "active": True, "backfill_queued": True}
     assert await copy_job.drain_backfill(redis) == 1

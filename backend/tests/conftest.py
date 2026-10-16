@@ -1,7 +1,38 @@
+"""Hermetic test setup: the suite must give the same result on a dev box, in CI and inside the production
+container, whatever `.env` or environment variables are around.
+
+Before anything imports the app we (1) stop pydantic from reading any `.env`, (2) delete every environment
+variable the app or the intelligence package reads (a deployed SIWE_DOMAIN, bot tokens, rate limits, RPC
+endpoints ...), and (3) pin the few values tests rely on. Tests that need another value patch the settings
+object with `monkeypatch`, never the environment.
+"""
 import os
 
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-os.environ.setdefault("JWT_SECRET", "test-secret")
+from app.core import config as _config
+
+# TEST_SIWE_DOMAIN lets you prove the tests derive the domain from settings instead of hardcoding it
+PINNED_SIWE_DOMAIN = os.environ.get("TEST_SIWE_DOMAIN", "localhost:3000")
+
+PINNED_ENV = {
+    "DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+    "REDIS_URL": "redis://localhost:6399/0",  # never reached: tests use fakeredis
+    "JWT_SECRET": "test-secret",
+    "SIWE_DOMAIN": PINNED_SIWE_DOMAIN,
+    "CHAIN_ID": "4663",
+}
+
+
+def _make_hermetic() -> None:
+    _config.Settings.model_config["env_file"] = None  # a real backend/.env must never leak in
+    app_vars = {name.upper() for name in _config.Settings.model_fields}
+    for name in list(os.environ):
+        if name.upper() in app_vars:
+            del os.environ[name]
+    os.environ.update(PINNED_ENV)
+    _config.get_settings.cache_clear()
+
+
+_make_hermetic()
 
 import fakeredis.aioredis  # noqa: E402
 import pytest  # noqa: E402
@@ -93,13 +124,42 @@ async def signed_in(client):
 
 
 @pytest.fixture(autouse=True)
-def _reset_rpc_state():
-    """Endpoint cooldowns / learned caps / the getLogs gate are process-wide: never leak between tests."""
+def _reset_process_state():
+    """Cooldowns, learned caps, pacing slots, config overrides, cached engine: all module-level, all reset, so the
+    result of a test can't depend on which tests ran before it (or on their order)."""
+    from app.services.engine.loader import get_engine
+    from app.services.intelligence import config as icfg
+    from app.services.intelligence import http as ihttp
     from app.services.intelligence.endpoints import POOL
     from app.services.intelligence.rpc import LOGS_GATE
 
-    POOL.reset()
-    LOGS_GATE.reset()
+    def reset():
+        POOL.reset()
+        LOGS_GATE.reset()
+        ihttp.PACER.__init__()  # fresh lanes and clock
+        icfg._overrides.clear()
+        icfg._overrides["EXPLORER_API_URL"] = ""  # the default is the real explorer; tests that need one set their own
+        icfg._proxy_prefix = ""
+        get_engine.cache_clear()
+
+    reset()
     yield
-    POOL.reset()
-    LOGS_GATE.reset()
+    reset()
+
+
+@pytest.fixture(autouse=True)
+def _no_outbound_network(monkeypatch):
+    """No test may touch the network: a real RPC / explorer / market call makes results depend on the host (and on
+    whether it is online). Anything but loopback / unix sockets fails at once with a connection error, which the
+    code under test handles like any unreachable source - and which a test would have to mock to get a result."""
+    import socket
+
+    real_connect = socket.socket.connect
+
+    def guarded(self, address, *a, **k):
+        host = address[0] if isinstance(address, tuple) else None  # None: AF_UNIX path
+        if host is not None and host not in ("127.0.0.1", "::1", "localhost"):
+            raise ConnectionRefusedError(f"network access blocked in tests: {address!r}")
+        return real_connect(self, address, *a, **k)
+
+    monkeypatch.setattr(socket.socket, "connect", guarded)

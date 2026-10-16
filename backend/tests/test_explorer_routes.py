@@ -163,3 +163,11 @@ def test_scan_with_the_jina_key_removed_still_has_holders_real_hands_and_liquidi
     assert not any("jina" in u or PROXY in u for u in r.urls())
     assert "explorer" not in "".join(r.urls()).replace(f"{BROWSER}/internal/fetch", "")  # explorer only via the sidecar
     assert any(u == f"{BROWSER}/internal/fetch" for u in r.urls()) and any("dexscreener" in u for u in r.urls())
+
+
+def test_browser_answering_with_a_challenge_page_is_a_failed_source_not_data(cfg, monkeypatch):
+    """Fail closed: HTML (an unsolved challenge, an error page) must never be read as "no findings"."""
+    cfg(explorer_browser_url=BROWSER, explorer_proxy_prefix="")
+    monkeypatch.setattr(ihttp.urllib.request, "urlopen", lambda req, timeout=None: io.BytesIO(b"<html><title>Just a moment...</title>"))
+    with pytest.raises(ihttp.HttpError, match="browser:"):
+        ihttp.get_json(EXPLORER_URL)

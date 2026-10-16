@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.models import HoldersSnapshot, SafetyScore, Token
-from app.schemas.safety import Metric, SafetyOut
+from app.schemas.safety import NO_DATA_HINT as NO_DATA
+from app.schemas.safety import NO_VALUE, Metric, SafetyOut
 from app.services.engine import ScanEngine, ScanReport
 from app.services.intelligence import ScanUnavailable
 from app.services.intelligence.http import set_priority
@@ -39,15 +40,13 @@ def is_incomplete(report: ScanReport, holders_stale_at: datetime | None) -> bool
 # Score, verdict and risk lines come from intelligence.scoring via the scan result;
 # this module only turns them into the Safety screen: summary + exactly 4 metrics.
 
+CLEAN_PARTIAL = "No red flags in what we could check. We couldn't work out how far the price could fall if a big holder sells."
 SUMMARY = {
     CLEAN: "Looks healthy. Lots of real people hold it and no one holder can move the price much.",
     RISKY: "Proceed with care.",
     DANGER: "Very likely a scam. Avoid.",
     UNKNOWN: "We couldn't check this one. Some of the data we need wasn't available, so don't treat it as safe — try again in a minute.",
 }
-
-
-NO_DATA = "We couldn't get this"
 
 
 def _money(v: float) -> str:
@@ -61,23 +60,23 @@ def _money(v: float) -> str:
 def build_metrics(r: ScanReport, impact: float | None) -> list[Metric]:
     m: list[Metric] = []
     hc = r.holders_count
-    m.append(Metric(key="holders", label="Holders", emoji="👥", value=f"{hc:,}" if hc is not None else "—",
+    m.append(Metric(key="holders", label="Holders", emoji="👥", value=f"{hc:,}" if hc is not None else NO_VALUE,
                     tone=NA if hc is None else BAD if hc < 200 else OK,
                     hint=NO_DATA if hc is None else "Very few owners" if hc < 200 else "People who own it"))
     rh = r.real_hands_pct
     rh_tone = NA if rh is None else OK if rh >= 80 else WARN if rh >= 50 else BAD
     rh_hint = (NO_DATA if rh is None else "Not bots or linked wallets" if rh_tone == OK
                else f"About {round((100 - rh) / 10)} in 10 look like bots" if rh_tone == WARN else "Most look fake")
-    m.append(Metric(key="real_hands", label="Real hands", emoji="✋", value=f"{rh:.0f}%" if rh is not None else "—",
+    m.append(Metric(key="real_hands", label="Real hands", emoji="✋", value=f"{rh:.0f}%" if rh is not None else NO_VALUE,
                     tone=rh_tone, hint=rh_hint))
     it = NA if impact is None else OK if impact < 20 else WARN if impact < 70 else BAD
     m.append(Metric(key="top_holder_sell", label="If top holder sells", emoji="📉",
-                    value=f"-{impact:.0f}%" if impact is not None else "—", tone=it,
+                    value=f"-{impact:.0f}%" if impact is not None else NO_VALUE, tone=it,
                     hint=(NO_DATA if impact is None else "Price could nearly vanish" if it == BAD
                           else f"Price could drop about {impact:.0f}%")))
     liq = r.liquidity_usd
     lt = NA if liq is None else OK if liq >= 500_000 else WARN if liq >= 20_000 else BAD
-    m.append(Metric(key="liquidity", label="Liquidity", emoji="💧", value=_money(liq) if liq is not None else "—",
+    m.append(Metric(key="liquidity", label="Liquidity", emoji="💧", value=_money(liq) if liq is not None else NO_VALUE,
                     tone=lt, hint={OK: "Easy to sell without a big loss", WARN: "Large sells will move the price",
                                    BAD: "Hard to sell at any price", NA: NO_DATA}[lt]))
     return m
@@ -88,6 +87,9 @@ def evaluate(r: ScanReport) -> SafetyOut:
     risks = list(r.risks)
     score, verdict = r.safety_score, r.verdict
     summary = SUMMARY[verdict]
+    if verdict == CLEAN and impact is None:
+        # the usual CLEAN sentence promises that no single holder can move the price; without FDV we can't say so
+        summary = CLEAN_PARTIAL
     if verdict == RISKY and risks:
         summary = f"Proceed with care. {risks[0]}"
     elif verdict == DANGER and risks:

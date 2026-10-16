@@ -266,9 +266,8 @@ async def test_async_batch_is_chunked():
     assert sizes == [50, 50, 20] and out == ["0x1"] * 120
 
 
-async def test_async_error_object_and_429_fail_over_and_cool_down():
-    import json
-
+async def test_async_error_object_and_429_fail_over_and_cool_down(monkeypatch):
+    monkeypatch.setattr(POOL, "_jitter", lambda: 1.0)  # the cooldown is jittered +-25%: pin it, or the bound below flaps
     seen = {"a": 0, "b": 0, "c": 0}
 
     def handler(request):
@@ -285,7 +284,7 @@ async def test_async_error_object_and_429_fail_over_and_cool_down():
     for _ in range(3):
         assert await c.call("eth_blockNumber", []) == "0x1"
     assert seen["b"] == 1 and seen["c"] == 4  # the throttled node isn't re-hit while cooling
-    assert POOL.snapshot("https://b.example")["cooling_s"] > 25
+    assert POOL.snapshot("https://b.example")["cooling_s"] == pytest.approx(30, abs=1)  # Retry-After: 30
 
 
 async def test_async_all_failing_raises_a_readable_error(monkeypatch):

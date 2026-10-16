@@ -41,7 +41,11 @@ async def test_magic_link_same_user_twice(db, redis, sent):
     assert ids[0] == ids[1]
 
 
-def siwe_message(address: str, nonce: str, domain="localhost:3000", chain=4663) -> str:
+def siwe_message(address: str, nonce: str, domain: str | None = None, chain: int | None = None) -> str:
+    from app.core.config import get_settings
+
+    domain = domain or get_settings().siwe_domain  # whatever the app under test expects, never a literal
+    chain = chain or get_settings().chain_id
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     return (f"{domain} wants you to sign in with your Ethereum account:\n{address}\n\n"
             f"Sign in to Chainfolio\n\nURI: http://{domain}\nVersion: 1\nChain ID: {chain}\n"

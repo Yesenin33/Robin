@@ -1,7 +1,11 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
+
+
+NO_VALUE = "—"
+NO_DATA_HINT = "We couldn't check this"
 
 
 class Metric(BaseModel):
@@ -11,6 +15,14 @@ class Metric(BaseModel):
     value: str
     tone: Literal["ok", "warn", "bad", "unknown"]  # unknown = we have no value: shown neutral, never green
     hint: str
+
+    @model_validator(mode="after")
+    def _unknown_is_neutral(self) -> "Metric":
+        """A metric without a value is neutral and says we couldn't check it - whatever produced it (an older
+        stored row, a cache entry, a new code path). It can never carry an ok/warn/bad tone or a reassuring hint."""
+        if self.value == NO_VALUE:
+            self.tone, self.hint = "unknown", NO_DATA_HINT
+        return self
 
 
 class SafetyOut(BaseModel):

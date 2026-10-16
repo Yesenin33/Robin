@@ -146,8 +146,14 @@ Tests:
 ```bash
 python3.12 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
-pytest -q
+python -m pytest tests/ -q
 ```
+The suite is hermetic: `tests/conftest.py` ignores any `.env`, deletes every environment variable the app reads,
+pins the few values tests rely on (`SIWE_DOMAIN=localhost:3000`; `TEST_SIWE_DOMAIN=...` overrides it to prove the
+domain comes from settings), blocks outbound network, and resets all process-wide state (RPC cooldowns, pacing,
+config overrides) before every test. It therefore gives the same result on a dev box, in CI and inside the
+production container, in any order (pytest-randomly shuffles every run; `-p no:randomly` or
+`-p randomly --randomly-seed=N` to pin it).
 
 ## Deploy (single VPS)
 

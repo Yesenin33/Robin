@@ -1,5 +1,6 @@
 -r requirements.txt
 pytest==8.3.4
 pytest-asyncio==0.25.0
+pytest-randomly==3.16.0  # random order every run (the seed is printed): order dependence shows up at once
 aiosqlite==0.20.0
 fakeredis==2.26.2

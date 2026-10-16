@@ -79,8 +79,10 @@ def scan(address: str, chain: str = "robinhood", *, transport: Transport | None 
             hd.contracts = {a for a, c in codes.items() if c not in ("0x", "0x0")}
         if supply:
             ops = operators.analyze(hd.balances, supply, transfers, ca, r["pair_address"], hd.contracts)
+            # "real hands" = share NOT held by linked wallets. Linking needs transfers: without any (the read failed,
+            # or none in the window) nothing was linked only because nothing was looked at - that is unknown.
             r.update(operators=ops["operators"], top_holder_pct=ops["top_holder_pct"],
-                     real_hands_pct=ops["real_hands_pct"], top_holders=ops["top_holders"],
+                     real_hands_pct=ops["real_hands_pct"] if transfers else None, top_holders=ops["top_holders"],
                      whale_labels=ops["whale_labels"])
 
     t = trading.analyze(transfers, r["pair_address"], ca)

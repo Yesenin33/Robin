@@ -21,8 +21,9 @@ class Assessment:
 def evidence_gaps(r: dict) -> list[str]:
     """What we still need before we may call a token CLEAN or RISKY. Empty list = the evidence bar is met.
 
-    The bar: the market lookup worked and found a trading pool (liquidity known), holders are known, and the
-    contract itself could be read. `errors` carries the failed stages (market:, meta:, security:)."""
+    The bar: the market lookup worked and found a trading pool (liquidity known), holders are known AND broken
+    down (top holder, real hands), and the contract itself could be read. `errors` carries the failed stages
+    (market:, meta:, security:). Beyond the bar, an unobserved sell caps the verdict at RISKY (see assess)."""
     errors = r.get("errors") or []
     failed = lambda *stages: any(str(e).split(":", 1)[0] in stages for e in errors)  # noqa: E731
     gaps = []
@@ -32,6 +33,8 @@ def evidence_gaps(r: dict) -> list[str]:
         gaps.append("trading pool info")  # market worked but found no pool
     if r.get("holders_count") is None:
         gaps.append("holder data")
+    elif r.get("top_holder_pct") is None or r.get("real_hands_pct") is None:
+        gaps.append("holder breakdown")  # we know how many holders, not who they are or whether they are linked
     if failed("meta", "security"):
         gaps.append("contract details")
     return gaps
@@ -47,8 +50,10 @@ def sell_impact_pct(top_holder_pct: float | None, fdv: float | None, liquidity_u
 
     pool quote side Q = L/2; seller dumps X = top% * FDV of value; price_after/price_before = (Q/(Q+X))^2
     """
-    if top_holder_pct is None or not fdv or not liquidity_usd:
-        return None
+    if top_holder_pct is None or not fdv or liquidity_usd is None:
+        return None  # a missing input is unknown, not "no impact"
+    if liquidity_usd <= 0:
+        return 100.0  # a known empty pool: any sell wipes out the price
     q = liquidity_usd / 2
     x = top_holder_pct / 100 * fdv
     return round((1 - (q / (q + x)) ** 2) * 100, 1)
@@ -58,6 +63,7 @@ def assess(r: dict) -> Assessment:
     score = 100
     risks: list[str] = []
     critical = False
+    cap_at_risky = False
     renounced = r.get("owner_renounced")
 
     def hit(points: int, line: str, crit: bool = False) -> None:
@@ -68,6 +74,11 @@ def assess(r: dict) -> Assessment:
 
     if r.get("honeypot"):
         hit(60, "You may not be able to sell this token.", True)
+    elif r.get("honeypot") is None:
+        # Nobody was seen selling (and too few buys to say it is stuck): we cannot confirm it can be sold.
+        # Absent evidence of a honeypot is not evidence that it is not one, so it can never be CLEAN.
+        cap_at_risky = True
+        risks.append("We haven't seen anyone sell it recently, so we can't confirm you could sell it.")
     for side, tax in (("Selling", r.get("sell_tax")), ("Buying", r.get("buy_tax"))):
         if tax is not None and tax >= 30:
             hit(40, f"{side} costs a {tax:.0f}% fee.", True)
@@ -117,6 +128,8 @@ def assess(r: dict) -> Assessment:
         hit(5, "No website or Twitter found.")
 
     score = max(0, min(100, score))
+    if cap_at_risky:
+        score = min(score, 69)
     verdict = DANGER if critical or score < 40 else RISKY if score < 70 else CLEAN
     if gaps := evidence_gaps(r):
         note = unknown_note(gaps)

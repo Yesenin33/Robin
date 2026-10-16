@@ -19,8 +19,20 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements*.txt
       - run: pip install -r requirements-dev.txt
-      - name: pytest (hermetic — RPC, explorer, market, Telegram and Web Push are mocked)
-        run: pytest -q
+      - name: pytest (hermetic — RPC, explorer, market, Telegram and Web Push are mocked; random order)
+        run: python -m pytest tests/ -q
+      - name: pytest again with a hostile environment (deployed settings must not leak into the tests)
+        env:
+          SIWE_DOMAIN: deployed.example
+          TEST_SIWE_DOMAIN: chainfolio.example
+          RATE_LIMIT_PER_MIN: "1"
+          ALERTS_PER_HOUR: "1"
+          TELEGRAM_BOT_TOKEN: "999:HOSTILE"
+          EXPLORER_BROWSER_URL: http://nowhere:1
+          EXPLORER_PROXY_PREFIX: https://nowhere.example
+          RPC_URL: http://nowhere:2
+          DATABASE_URL: postgresql+asyncpg://nobody@nowhere/none
+        run: python -m pytest tests/ -q
 
   browser:
     # the Chromium sidecar against a fake Cloudflare-challenged explorer (real browser, no network needed)
