@@ -35,17 +35,36 @@ services:
     restart: "no"
     command: ["alembic", "upgrade", "head"]
 
+  # Real Chromium for the Cloudflare-challenged explorer: engine -> POST http://browser:8765/internal/fetch.
+  # Internal only (no published port), persistent profile keeps the Cloudflare clearance across restarts.
+  browser:
+    build: ../browser
+    restart: unless-stopped
+    shm_size: 256mb  # Chromium needs more than Docker's 64 MB /dev/shm
+    environment:
+      ALLOWED_HOSTS: ${EXPLORER_HOST:-robinhoodchain.blockscout.com}  # the ONLY host it will fetch
+      FETCH_TOKEN: ${EXPLORER_BROWSER_TOKEN:-}
+    volumes: [browser-profile:/data]
+    mem_limit: 768m
+
   api:
     <<: *app
     ports: ["127.0.0.1:8000:8000"]
+    environment:
+      # "-" (not ":-"): an explicitly EMPTY EXPLORER_BROWSER_URL in .env disables the sidecar
+      EXPLORER_BROWSER_URL: ${EXPLORER_BROWSER_URL-http://browser:8765}
     depends_on:
       migrate: { condition: service_completed_successfully }
+      browser: { condition: service_started }
 
   worker:
     <<: *app
     command: ["python", "-m", "app.jobs.worker"]
+    environment:
+      EXPLORER_BROWSER_URL: ${EXPLORER_BROWSER_URL-http://browser:8765}
     depends_on:
       migrate: { condition: service_completed_successfully }
+      browser: { condition: service_started }
 
   web:
     build:
@@ -61,3 +80,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  browser-profile:

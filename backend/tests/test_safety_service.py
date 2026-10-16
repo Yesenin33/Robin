@@ -82,7 +82,7 @@ def test_scam_token_is_danger_and_not_buyable():
     ({"blacklist": True, "owner_renounced": False}, "DANGER"),
     ({"blacklist": True, "owner_renounced": True}, "CLEAN"),  # renounced -> nobody can use it
     ({"can_mint": True, "owner_renounced": False, "proxy": True}, "RISKY"),
-    ({"liquidity_usd": None}, "CLEAN"),
+    ({"liquidity_usd": None}, "UNKNOWN"),  # no pool found: not enough evidence to call it clean
 ])
 def test_verdict_rules(kw, verdict):
     assert evaluate(report(**kw)).verdict == verdict
@@ -118,3 +118,55 @@ async def test_concurrent_scan_is_locked(db, redis):
     await redis.set(f"lock:scan:{CA}", "1")
     with pytest.raises(ScanInProgress):
         await SafetyService(db, redis, FakeEngine(report())).get(CA)
+
+
+# ---------- UNKNOWN: never green, never "safe" ----------
+
+def unknown_report(**kw) -> ScanReport:
+    return report(holders_count=None, real_hands_pct=None, top_holder_pct=None, liquidity_usd=None, fdv=None,
+                  errors=["market: HTTP Error 403", "holders_explorer: HTTP Error 402"], **kw)
+
+
+def test_unknown_verdict_is_neutral_everywhere():
+    out = evaluate(unknown_report())
+    assert out.verdict == "UNKNOWN" and out.score is None and out.buy_recommended is False
+    assert out.summary.startswith("We couldn't check this one.") and "don't treat it as safe" in out.summary
+    assert out.risks[0].startswith("We couldn't check this token:")
+    assert [m.value for m in out.metrics] == ["—", "—", "—", "—"]
+    assert {m.tone for m in out.metrics} == {"unknown"}  # grey, not the "ok" green
+    assert all(m.hint == "We couldn't get this" for m in out.metrics)
+
+
+async def test_unknown_is_stored_cached_and_served_without_a_score(db, redis):
+    engine = FakeEngine(unknown_report())
+    svc = SafetyService(db, redis, engine)
+    first = await svc.scan(CA)
+    assert svc.last_incomplete  # errors recorded + UNKNOWN: queued for a backoff retry
+    assert first.verdict == "UNKNOWN" and first.score is None
+    row = (await db.execute(select(SafetyScore))).scalar_one()
+    assert row.score is None and row.verdict == "UNKNOWN"
+    await redis.flushall()
+    again = await SafetyService(db, redis, engine).get(CA)  # incomplete + not in backoff -> re-scanned, still UNKNOWN
+    assert again.verdict == "UNKNOWN" and again.score is None and again.buy_recommended is False
+
+
+async def test_unknown_never_alerts_and_does_not_count_as_a_downgrade(db, redis):
+    from app.services.alert_service import on_verdict
+
+    tok = Token(address=CA, symbol="X")
+    db.add(tok)
+    await db.commit()
+    assert await on_verdict(db, redis, tok, "CLEAN", "UNKNOWN", []) == 0  # a data outage is not news
+    assert await on_verdict(db, redis, tok, "UNKNOWN", "UNKNOWN", []) == 0
+    assert await on_verdict(db, redis, tok, "UNKNOWN", "CLEAN", []) == 0  # old unknown ~ no prior verdict
+
+
+def test_bot_and_copy_feed_words_for_unknown():
+    from app.services.copy_service import describe
+    from app.services.telegram_bot import format_safety
+
+    text = format_safety(evaluate(unknown_report()))
+    assert "❔ We couldn't check this one" in text and "✅" not in text and "CLEAN" not in text
+    assert "Don't treat this as safe until a check succeeds." in text
+    reason, tag = describe("buy", 10, "X", 5.0, None, "UNKNOWN", [])
+    assert reason.endswith("Our safety check couldn't get enough data on this token yet.") and tag == "medium"

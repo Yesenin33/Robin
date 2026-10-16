@@ -1,15 +1,45 @@
-"""0-100 safety score, verdict and plain-language risks — derived ONLY from the normalized result."""
+"""0-100 safety score, verdict and plain-language risks — derived ONLY from the normalized result.
+
+The score starts at 100 and loses points for problems we DETECT, so "we couldn't look" would read as "safe".
+To prevent that, a verdict needs a minimum evidence bar (see `evidence_gaps`). Below it the assessment is
+UNKNOWN with score None — never CLEAN or RISKY. A detected danger (honeypot, a wallet owning most of it, a
+very low score from real findings) still shows as DANGER: missing data must not hide a threat.
+"""
 from dataclasses import dataclass
 
-CLEAN, RISKY, DANGER = "CLEAN", "RISKY", "DANGER"
+CLEAN, RISKY, DANGER, UNKNOWN = "CLEAN", "RISKY", "DANGER", "UNKNOWN"
 
 
 @dataclass
 class Assessment:
-    score: int
+    score: int | None  # None when the verdict is UNKNOWN
     verdict: str
     risks: list[str]
     critical: bool
+
+
+def evidence_gaps(r: dict) -> list[str]:
+    """What we still need before we may call a token CLEAN or RISKY. Empty list = the evidence bar is met.
+
+    The bar: the market lookup worked and found a trading pool (liquidity known), holders are known, and the
+    contract itself could be read. `errors` carries the failed stages (market:, meta:, security:)."""
+    errors = r.get("errors") or []
+    failed = lambda *stages: any(str(e).split(":", 1)[0] in stages for e in errors)  # noqa: E731
+    gaps = []
+    if failed("market"):
+        gaps.append("market data")
+    elif r.get("liquidity_usd") is None:
+        gaps.append("trading pool info")  # market worked but found no pool
+    if r.get("holders_count") is None:
+        gaps.append("holder data")
+    if failed("meta", "security"):
+        gaps.append("contract details")
+    return gaps
+
+
+def unknown_note(gaps: list[str]) -> str:
+    names = gaps[0] if len(gaps) == 1 else ", ".join(gaps[:-1]) + " and " + gaps[-1]
+    return f"We couldn't check this token: {names} {'was' if len(gaps) == 1 else 'were'} unavailable."
 
 
 def sell_impact_pct(top_holder_pct: float | None, fdv: float | None, liquidity_usd: float | None) -> float | None:
@@ -72,9 +102,9 @@ def assess(r: dict) -> Assessment:
     elif rh is not None and rh < 80:
         hit(8, "Some holders look like bots or linked wallets.")
 
-    liq = r.get("liquidity_usd")
+    liq = r.get("liquidity_usd")  # None is an evidence gap (handled below), not a point deduction
     if liq is None:
-        hit(10, "We couldn't find a trading pool for it.")
+        pass
     elif liq < 20_000:
         hit(25, "Hard to sell at any price — very little liquidity.")
     elif liq < 100_000:
@@ -88,4 +118,9 @@ def assess(r: dict) -> Assessment:
 
     score = max(0, min(100, score))
     verdict = DANGER if critical or score < 40 else RISKY if score < 70 else CLEAN
+    if gaps := evidence_gaps(r):
+        note = unknown_note(gaps)
+        if verdict == DANGER:  # a real finding stands even when other data is missing
+            return Assessment(score, DANGER, [*risks, note], critical)
+        return Assessment(None, UNKNOWN, [note, *risks], False)
     return Assessment(score, verdict, risks, critical)

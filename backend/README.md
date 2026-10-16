@@ -81,6 +81,26 @@ Scans run in a thread with a timeout, guarded by a Redis lock per token (202 whi
 | `price_moves` | 10 min | holders alerted on a >= `PRICE_MOVE_PCT` move |
 | scan queue / stale refresh / position snapshots | 5 s / 30 min / 5 min | as before |
 
+## Safety verdicts: UNKNOWN is not CLEAN
+
+The score starts at 100 and loses points for problems we *detect*, so missing data used to read as "safe". A verdict
+now needs a minimum evidence bar (`intelligence/scoring.py:evidence_gaps`): the market lookup worked and found a
+pool (liquidity known), holders are known, and the contract could be read. Below it the result is
+`verdict="UNKNOWN"`, `safety_score=null`, and the first risk line says what we couldn't get. A detected danger
+(honeypot, a wallet owning most of it) still shows as DANGER; UNKNOWN never alerts and is rendered grey.
+Incomplete scans are retried with backoff (see Worker jobs).
+
+## Explorer access (Cloudflare challenge)
+
+The explorer answers plain HTTP with `403 cf-mitigated: challenge`; a real browser passes it. The `browser`
+service (`../browser`: Chromium + Playwright, persistent profile volume, internal network only) exposes
+`POST /internal/fetch {"url": ...}`; the engine calls it for explorer URLs only (DexScreener / GeckoTerminal are
+fetched directly). It fetches only `ALLOWED_HOSTS` (the explorer), solves the challenge once per session and
+re-solves when the clearance expires. `EXPLORER_PROXY_PREFIX` (a paid read proxy) is an optional fallback used only
+when the browser failed; empty = no proxy. `/health/sources` has an `explorer browser` entry
+(`challenges_solved` / `challenges_failed`). Build: `docker compose up -d --build browser` (~600 MB image: run
+`docker builder prune -af` afterwards on a small disk).
+
 ## RPC reliability
 
 All RPC callers (scans, jobs, portfolio snapshots) share one endpoint policy (`intelligence/endpoints.py`):
@@ -93,6 +113,10 @@ node's cooldown, failure count and learned log-range cap.
 ## Verify on the server
 
 ```bash
+# explorer through the browser sidecar (no proxy, no Jina key)
+docker compose up -d --build browser api worker && sleep 20
+docker compose exec api curl -s "http://browser:8765/health"
+docker compose exec api python -c "from app.services.intelligence import scan; r=scan('0x05517f08e0bb2d7d8ab25f98e5c2828fdba6386c'); print({k: r[k] for k in ('verdict','safety_score','holders_count','real_hands_pct','liquidity_usd','errors')})"
 cd /root/chainfolio/backend
 python -m scripts.gen_vapid                       # paste into .env with TELEGRAM_BOT_TOKEN/USERNAME/WEBHOOK_SECRET
 docker builder prune -af && docker compose up -d --build migrate api worker web

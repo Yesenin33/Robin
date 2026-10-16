@@ -12,11 +12,12 @@ from app.services.chain_index import Trade
 from app.services.intelligence import contract
 from app.services.intelligence.rpc import Rpc
 
-RISK_TAG = {"CLEAN": "low", "RISKY": "medium", "DANGER": "high"}
+RISK_TAG = {"CLEAN": "low", "RISKY": "medium", "DANGER": "high", "UNKNOWN": "medium"}
 VERDICT_TEXT = {
     "CLEAN": "Our safety check says it looks healthy.",
     "RISKY": "Our safety check says proceed with care",
     "DANGER": "Our safety check flags it as very likely a scam",
+    "UNKNOWN": "Our safety check couldn't get enough data on this token yet",
 }
 
 
@@ -38,7 +39,9 @@ def describe(side: str, token_amount: float | None, symbol: str, usd: float | No
     if verdict is None:
         return f"{action} We haven't safety-checked this token yet.", "medium"
     note = VERDICT_TEXT[verdict]
-    if verdict != "CLEAN":
+    if verdict == "UNKNOWN":
+        note += "."
+    elif verdict != "CLEAN":
         note += f": {risks[0][0].lower() + risks[0][1:]}" if risks else "."
     return f"{action} {note}", RISK_TAG[verdict]
 

@@ -146,7 +146,9 @@ def test_scan_survives_market_outage():
     assert tuple(r) == SCHEMA_KEYS
     assert r["symbol"] == "MOON" and r["liquidity_usd"] is None
     assert any(e.startswith("market:") for e in r["errors"])
-    assert "We couldn't find a trading pool for it." in r["risks"]
+    # holders were read from the logs, but the market lookup failed: below the evidence bar
+    assert r["verdict"] in ("UNKNOWN", "DANGER")
+    assert r["verdict"] != "CLEAN" and any("market data" in x for x in r["risks"])
 
 
 def test_scan_rejects_bad_address():
@@ -208,3 +210,80 @@ def test_scan_raises_when_nothing_is_reachable():
 
     with pytest.raises(intelligence.ScanUnavailable, match="meta"):
         intelligence.scan(T, transport=dead_rpc, fetch=dead_market)
+
+
+# ---------- evidence bar: "unknown" must never read as "safe" ----------
+
+from app.services.intelligence.scoring import UNKNOWN, assess, evidence_gaps  # noqa: E402
+
+
+def _dead(url):
+    raise HttpError("blocked")
+
+
+def test_fully_failed_scan_is_unknown_not_clean():
+    """Production repro: explorer + market failing -> used to be CLEAN, score 90."""
+    chain = Chain([], bytecode("a9059cbb"), owner=ZERO)  # RPC works, no transfers, so no holders from logs either
+    intelligence.configure(explorer_api_url="https://explorer.test", explorer_proxy_prefix="")
+    import app.services.intelligence.holders as holders_mod
+
+    original = holders_mod.get_json
+    holders_mod.get_json = _dead
+    try:
+        r = intelligence.scan(T, transport=chain, fetch=_dead)
+    finally:
+        holders_mod.get_json = original
+    assert r["holders_count"] is None and r["real_hands_pct"] is None and r["liquidity_usd"] is None
+    assert r["errors"], "the failures are recorded"
+    assert r["verdict"] == UNKNOWN == "UNKNOWN"
+    assert r["safety_score"] is None
+    assert r["verdict"] != "CLEAN"
+    assert r["risks"][0].startswith("We couldn't check this token:")
+    assert "market data" in r["risks"][0] and "holder data" in r["risks"][0]
+
+
+def test_detected_danger_survives_missing_data():
+    """Missing market data must not hide a real finding: the deployer's cluster owns 60%."""
+    chain = Chain(SCAM, bytecode("a9059cbb", "40c10f19"))
+    r = intelligence.scan(T, transport=chain, fetch=_dead)
+    assert r["liquidity_usd"] is None and r["verdict"] == "DANGER"
+    assert r["safety_score"] is not None and "One wallet owns most of it." in r["risks"]
+    assert any("market data" in x for x in r["risks"])  # ...and we still say what we couldn't check
+
+
+FULL = dict(holders_count=5000, liquidity_usd=900_000, real_hands_pct=95, top_holder_pct=1, fdv=2_000_000,
+            honeypot=False, can_mint=False, owner_renounced=True, errors=[])
+
+
+@pytest.mark.parametrize("override,gap", [
+    ({"holders_count": None}, "holder data"),
+    ({"liquidity_usd": None}, "trading pool info"),
+    ({"errors": ["market: GET https://api.dexscreener.com/...: HTTP Error 403"], "liquidity_usd": None}, "market data"),
+    ({"errors": ["meta: POST https://rpc: boom"]}, "contract details"),
+    ({"errors": ["security: not a contract"]}, "contract details"),
+])
+def test_each_missing_piece_blocks_clean(override, gap):
+    a = assess({**FULL, **override})
+    assert a.verdict == UNKNOWN and a.score is None
+    assert gap in a.risks[0] and a.risks[0].startswith("We couldn't check this token:")
+    assert evidence_gaps({**FULL, **override})
+
+
+def test_complete_evidence_is_still_clean_and_failures_elsewhere_do_not_count():
+    a = assess(FULL)
+    assert (a.verdict, a.score, a.risks) == ("CLEAN", 100, [])
+    # an unrelated stage failing (e.g. transfers) is not an evidence gap by itself
+    assert assess({**FULL, "errors": ["transfers: all RPC endpoints failed"]}).verdict == "CLEAN"
+
+
+def test_gap_text_names_everything_missing():
+    a = assess({**FULL, "holders_count": None, "liquidity_usd": None, "errors": ["market: boom"]})
+    assert a.risks[0] == "We couldn't check this token: market data and holder data were unavailable."
+    three = assess({**FULL, "holders_count": None, "errors": ["market: x", "meta: y"], "liquidity_usd": None})
+    assert three.risks[0] == "We couldn't check this token: market data, holder data and contract details were unavailable."
+
+
+def test_non_critical_findings_with_missing_data_are_unknown_but_listed():
+    a = assess({**FULL, "can_mint": True, "owner_renounced": False, "holders_count": None})
+    assert a.verdict == UNKNOWN and a.score is None
+    assert "The creator can print more of it at any time." in a.risks  # what we did find is still shown

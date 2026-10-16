@@ -21,7 +21,7 @@ log = get_logger(__name__)
 LINK_TTL = 600
 ADDRESS = re.compile(r"^0x[a-fA-F0-9]{40}$")
 CODE = re.compile(r"^\d{6}$")
-VERDICT_ICON = {"CLEAN": "✅", "RISKY": "⚠️", "DANGER": "⛔"}
+VERDICT_ICON = {"CLEAN": "✅", "RISKY": "⚠️", "DANGER": "⛔", "UNKNOWN": "❔"}
 
 HELP = ("Here's what I can do:\n"
         "/portfolio — your balance and top holdings\n"
@@ -90,9 +90,13 @@ def _usd(v: float) -> str:
 def format_safety(s: SafetyOut) -> str:
     name = f"{s.name} ({s.symbol})" if s.name and s.symbol and s.name != s.symbol else (s.symbol or s.name or "This token")
     lines = [f"{name} — {VERDICT_ICON[s.verdict]} {s.verdict}", s.summary, ""]
+    if s.verdict == "UNKNOWN":
+        lines = [f"{name} — {VERDICT_ICON['UNKNOWN']} We couldn't check this one", s.summary, ""]
     lines += [f"{m.emoji} {m.label}: {m.value} — {m.hint}" for m in s.metrics]
-    if not s.buy_recommended:
+    if s.verdict == "DANGER":
         lines += ["", "Buying this one is not recommended."]
+    elif s.verdict == "UNKNOWN":
+        lines += ["", "Don't treat this as safe until a check succeeds."]
     return "\n".join(lines)
 
 

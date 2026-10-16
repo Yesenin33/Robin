@@ -91,6 +91,7 @@ function HoldingRow({ h, onOpen }: { h: Holding; onOpen: () => void }) {
           {h.symbol}
           {h.verdict === 'DANGER' && <span title="Failed safety check" style={{ fontSize: 12, color: 'var(--red)' }}>✕</span>}
           {h.verdict === 'RISKY' && <span title="Risky" style={{ fontSize: 12, color: 'var(--amber)' }}>!</span>}
+          {h.verdict === 'UNKNOWN' && <span title="We couldn't check this one" style={{ fontSize: 12, color: 'var(--muted-2)' }}>?</span>}
         </div>
         <div style={{ color: 'var(--muted-2)', fontSize: 13, marginTop: 2 }}>{amount(h.amount)} {h.symbol}</div>
       </div>

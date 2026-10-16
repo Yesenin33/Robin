@@ -59,7 +59,9 @@ async def holders_of(db: AsyncSession, token: str) -> list[int]:
 
 
 async def on_verdict(db: AsyncSession, redis: Redis, token: Token, old: str | None, new: str, risks: list[str]) -> int:
-    if old is None or SEVERITY[new] <= SEVERITY[old]:
+    if old is None or new not in SEVERITY:  # UNKNOWN = a data outage, not news about the token
+        return 0
+    if SEVERITY[new] <= SEVERITY.get(old, 0):  # old UNKNOWN counts as "no prior verdict"
         return 0
     sym = token.symbol or _short(token.address)
     body = f"Our safety check moved {sym} from {old} to {new}." + (f" {risks[0]}" if risks else "")

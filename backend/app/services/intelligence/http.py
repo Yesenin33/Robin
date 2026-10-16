@@ -7,7 +7,9 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
-from app.services.intelligence.config import explorer_base, explorer_rpm, proxy_key, proxy_prefix
+from app.services.intelligence.config import (
+    browser_token, browser_url, explorer_base, explorer_rpm, proxy_key, proxy_prefix,
+)
 
 UA = {"User-Agent": "chainfolio-intelligence/1.0", "Accept": "application/json"}
 
@@ -97,13 +99,39 @@ def backoff_seconds(attempt: int, retry_after: str | None, rand: Callable[[], fl
     return base * (0.75 + 0.5 * rand())
 
 
-def _read(url: str, timeout: float, tries: int) -> Any:
-    proxy = proxy_prefix()
-    target = f"{proxy.rstrip('/')}/{url}" if proxy else url
-    headers = {**UA, "x-respond-with": "json"} if proxy else UA
-    if proxy and (key := proxy_key()):
-        headers["Authorization"] = f"Bearer {key}"
-    req = urllib.request.Request(target, headers=headers)
+def _routes(url: str) -> list[str]:
+    """How to read this URL, in order. Only the EXPLORER sits behind a Cloudflare challenge: it goes through the
+    Chromium sidecar (EXPLORER_BROWSER_URL) and, optionally, the paid read proxy as a fallback
+    (EXPLORER_PROXY_PREFIX). Every other URL (DexScreener, GeckoTerminal) is fetched directly - they answer
+    200 without any help, and proxying them wastes the proxy's quota."""
+    if not is_explorer(url):
+        return ["direct"]
+    routes = []
+    if browser_url():
+        routes.append("browser")
+    if proxy_prefix():
+        routes.append("proxy")
+    return routes or ["direct"]
+
+
+def _build(route: str, url: str) -> tuple[urllib.request.Request, Callable[[str], Any]]:
+    if route == "browser":
+        headers = {**UA, "Content-Type": "application/json"}
+        if token := browser_token():
+            headers["Authorization"] = f"Bearer {token}"
+        body = json.dumps({"url": url}).encode()
+        return urllib.request.Request(f"{browser_url()}/internal/fetch", data=body, headers=headers), json.loads
+    if route == "proxy":
+        proxy = proxy_prefix()
+        headers = {**UA, "x-respond-with": "json"}
+        if key := proxy_key():
+            headers["Authorization"] = f"Bearer {key}"
+        return urllib.request.Request(f"{proxy.rstrip('/')}/{url}", headers=headers), _unwrap
+    return urllib.request.Request(url, headers=UA), json.loads
+
+
+def _try_route(route: str, url: str, timeout: float, tries: int) -> Any:
+    req, parse = _build(route, url)
     paced = is_explorer(url)
     last: Exception | None = None
     for attempt in range(tries):
@@ -113,7 +141,7 @@ def _read(url: str, timeout: float, tries: int) -> Any:
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
                 raw = r.read().decode("utf-8", "replace")
-            return _unwrap(raw) if proxy else json.loads(raw)
+            return parse(raw)
         except urllib.error.HTTPError as e:
             last = e
             if e.code not in (429, 500, 502, 503, 504):
@@ -124,9 +152,21 @@ def _read(url: str, timeout: float, tries: int) -> Any:
                 wait = 0.0  # the next acquire() sleeps until the penalty ends
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
             last = e
+            if route == "browser" and isinstance(e, urllib.error.URLError) and attempt >= 1:
+                break  # sidecar unreachable: don't sit through the whole backoff before the fallback
         if attempt < tries - 1 and wait:
             time.sleep(wait)
-    raise HttpError(f"GET {url}: {last}") from last
+    raise HttpError(f"{route}: {last}") from last
+
+
+def _read(url: str, timeout: float, tries: int) -> Any:
+    errors = []
+    for route in _routes(url):
+        try:
+            return _try_route(route, url, timeout, tries)
+        except HttpError as e:
+            errors.append(str(e))
+    raise HttpError(f"GET {url}: " + "; ".join(errors))
 
 
 def get_json(url: str, timeout: float = 20, tries: int = 3) -> Any:

@@ -24,9 +24,13 @@ class Settings(BaseSettings):
     chain_name: str = "robinhood"
     # Blockscout-compatible explorer API; "" = holders come from Transfer-log replay (slow, needs a node)
     explorer_api_url: str = "https://robinhoodchain.blockscout.com"
-    # The Robinhood Blockscout sits behind a Cloudflare challenge; explorer reads go through this
-    # read proxy, which returns the JSON payload. Set "" to call the explorer directly.
-    explorer_proxy_prefix: str = "https://r.jina.ai"
+    # The Robinhood Blockscout sits behind a Cloudflare JS challenge that only a real browser passes. Explorer
+    # reads go through the Chromium sidecar (`browser/`, POST {url}/internal/fetch). The paid read proxy
+    # (e.g. https://r.jina.ai) is an optional FALLBACK, used only if EXPLORER_PROXY_PREFIX is set and the
+    # browser failed. Both empty = call the explorer directly (works only when it is not challenged).
+    explorer_browser_url: str = ""  # e.g. http://browser:8765
+    explorer_browser_token: str = ""  # shared secret for the sidecar (optional, internal network anyway)
+    explorer_proxy_prefix: str = ""
     dexscreener_chain: str = "robinhood"
     geckoterminal_network: str = "robinhood"
     holder_scan_blocks: int = 60_000
@@ -78,7 +82,7 @@ class Settings(BaseSettings):
     scan_bulk_per_tick: int = 8  # bulk scans started per 5 s tick
     refresh_batch: int = 40  # stale tokens enqueued per refresh_stale run
     refresh_marker_ttl_s: int = 180  # "user asked for a fresh scan" marker (skips cache + DB shortcut)
-    explorer_rpm: int = 0  # explorer reads per minute across all threads; 0 = auto (20 anonymous, 200 with key)
+    explorer_rpm: int = 0  # explorer reads per minute, all threads; 0 = auto (60 browser, 20 anonymous proxy, 200 with key)
 
     # Jobs
     safety_refresh_min: int = 30

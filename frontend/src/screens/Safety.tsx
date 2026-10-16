@@ -13,8 +13,10 @@ const VERDICT: Record<Verdict, { vc: string; vt: string; soft: string; icon: str
   CLEAN: { vc: 'var(--green)', vt: 'var(--green-ink)', soft: 'var(--green-soft)', icon: '✓' },
   RISKY: { vc: 'var(--amber)', vt: 'var(--amber-ink)', soft: 'var(--amber-soft)', icon: '!' },
   DANGER: { vc: 'var(--red)', vt: '#fff', soft: 'var(--red-soft)', icon: '✕' },
+  // neutral grey on purpose: "we couldn't check" must never look like a result, least of all a green one
+  UNKNOWN: { vc: 'var(--muted-2)', vt: 'var(--surface)', soft: 'var(--card)', icon: '?' },
 }
-const TONE = { ok: '#fff', warn: 'var(--amber)', bad: 'var(--red)' }
+const TONE = { ok: '#fff', warn: 'var(--amber)', bad: 'var(--red)', unknown: 'var(--muted-2)' }
 const RECENT_KEY = 'cf_recent'
 
 type Recent = { ca: string; sym: string }
@@ -134,16 +136,19 @@ function SafetyView({ ca }: { ca: string }) {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 4 }}>
-        <button className="btn btn-primary" style={{ height: 54 }} onClick={() => trade('buy')}>Buy</button>
+        {/* no green call to action when we couldn't check the token */}
+        <button className={`btn ${s.verdict === 'UNKNOWN' ? 'btn-ghost' : 'btn-primary'}`} style={{ height: 54, fontWeight: 800 }}
+          onClick={() => trade('buy')}>Buy</button>
         <button className="btn btn-ghost" style={{ height: 54, fontWeight: 800 }} onClick={() => trade('sell')}>Sell</button>
       </div>
-      {!s.buy_recommended && <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--red-text)' }}>Buying this one is not recommended.</div>}
+      {s.verdict === 'DANGER' && <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--red-text)' }}>Buying this one is not recommended.</div>}
+      {s.verdict === 'UNKNOWN' && <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--muted-2)' }}>We couldn't check this one — don't treat it as safe.</div>}
     </>
   )
 }
 
 function MetricCard({ m }: { m: Metric }) {
-  const color = m.tone === 'ok' && m.key === 'real_hands' ? 'var(--green)' : TONE[m.tone]
+  const color = m.tone === 'ok' && m.key === 'real_hands' ? 'var(--green)' : TONE[m.tone] ?? TONE.unknown
   return (
     <div className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ fontSize: 12, color: 'var(--muted-2)', fontWeight: 600 }}>{m.label}</div>

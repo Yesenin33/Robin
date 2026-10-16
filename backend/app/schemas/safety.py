@@ -9,7 +9,7 @@ class Metric(BaseModel):
     label: str
     emoji: str
     value: str
-    tone: Literal["ok", "warn", "bad"]
+    tone: Literal["ok", "warn", "bad", "unknown"]  # unknown = we have no value: shown neutral, never green
     hint: str
 
 
@@ -17,8 +17,8 @@ class SafetyOut(BaseModel):
     address: str
     symbol: str | None
     name: str | None
-    score: int
-    verdict: Literal["CLEAN", "RISKY", "DANGER"]
+    score: int | None  # None when verdict is UNKNOWN
+    verdict: Literal["CLEAN", "RISKY", "DANGER", "UNKNOWN"]
     swarm_verdict: str | None = None
     summary: str
     risks: list[str]

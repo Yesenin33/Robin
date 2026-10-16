@@ -49,14 +49,28 @@ def logs_min_interval() -> float:
     return max(int(_env("RPC_LOGS_MIN_INTERVAL_MS", "100") or 0), 0) / 1000
 
 
+def browser_url() -> str:
+    """Base URL of the Chromium sidecar (`browser/`). The explorer sits behind a Cloudflare JS challenge that
+    only a real browser passes; the sidecar fetches explorer URLs for us. Empty = no sidecar."""
+    return _env("EXPLORER_BROWSER_URL", "").strip().rstrip("/")
+
+
+def browser_token() -> str:
+    return _env("EXPLORER_BROWSER_TOKEN", "").strip()
+
+
 def explorer_base() -> str:
     return _env("EXPLORER_API_URL", "https://robinhoodchain.blockscout.com").rstrip("/")
 
 
 def explorer_rpm() -> int:
-    """Explorer reads per minute, shared by every thread. Free r.jina.ai allows ~20; with a key ~200."""
+    """Explorer reads per minute, shared by every thread. Browser sidecar ~60; free r.jina.ai ~20, with a key ~200."""
     configured = int(_env("EXPLORER_RPM", "0") or 0)
-    return configured if configured > 0 else (200 if proxy_key() else 20)
+    if configured > 0:
+        return configured
+    if browser_url():
+        return 60  # local browser: no third-party quota, just be polite to Blockscout
+    return 200 if proxy_key() else 20
 
 
 def proxy_prefix() -> str:

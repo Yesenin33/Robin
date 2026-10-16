@@ -1,6 +1,7 @@
 // Mirrors backend/app/schemas/*
-export type Verdict = 'CLEAN' | 'RISKY' | 'DANGER'
-export type Tone = 'ok' | 'warn' | 'bad'
+// UNKNOWN = we could not check it (data was unavailable): shown grey, never as safe
+export type Verdict = 'CLEAN' | 'RISKY' | 'DANGER' | 'UNKNOWN'
+export type Tone = 'ok' | 'warn' | 'bad' | 'unknown'
 
 export interface Wallet { address: string; kind: string }
 export interface User { id: number; email: string | null; plan: string; wallets: Wallet[] }
@@ -31,7 +32,7 @@ export interface Safety {
   address: string
   symbol: string | null
   name: string | null
-  score: number
+  score: number | null  // null when verdict is UNKNOWN
   verdict: Verdict
   swarm_verdict: string | null
   summary: string

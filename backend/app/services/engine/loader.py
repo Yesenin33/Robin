@@ -37,6 +37,7 @@ def get_engine() -> ScanEngine:
     engine = IntelligenceEngine(
         s.chain_name, chain_id=s.chain_id, rpc_url=rpc_urls(), explorer_api_url=s.explorer_api_url,
         explorer_proxy_prefix=s.explorer_proxy_prefix, explorer_proxy_key=s.explorer_proxy_key or None,
+        explorer_browser_url=s.explorer_browser_url, explorer_browser_token=s.explorer_browser_token or None,
         explorer_rpm=s.explorer_rpm,
         dexscreener_chain=s.dexscreener_chain, geckoterminal_network=s.geckoterminal_network,
         holder_scan_blocks=s.holder_scan_blocks, log_chunk_blocks=s.log_chunk_blocks,

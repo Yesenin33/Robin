@@ -55,6 +55,10 @@ async def collect() -> dict:
     if cfg.explorer_api:
         probes.append(_probe("explorer", lambda: {"total_blocks": get_json(
             f"{cfg.explorer_api.rstrip('/')}/api/v2/stats", tries=1).get("total_blocks")}))
+    from app.services.intelligence.config import browser_url
+
+    if browser_url():
+        probes.append(_probe("explorer browser", lambda: get_json(f"{browser_url()}/health", tries=1)))
     probes.append(_probe("dexscreener", lambda: {"pairs": len(get_json(
         "https://api.dexscreener.com/latest/dex/search?q=robinhood", tries=1).get("pairs") or [])}))
     probes.append(_probe("geckoterminal", lambda: {"network": (get_json(

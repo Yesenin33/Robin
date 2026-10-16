@@ -14,8 +14,8 @@ class ScanReport:
     name: str | None = None
     decimals: int = 18
     total_supply: float | None = None
-    safety_score: int = 0
-    verdict: str = "DANGER"
+    safety_score: int | None = None
+    verdict: str = "UNKNOWN"
     risks: list[str] = field(default_factory=list)
     holders_count: int | None = None
     holders_count_exact: bool = False

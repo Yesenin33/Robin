@@ -29,8 +29,8 @@ class ScanResult(TypedDict):
     decimals: int
     total_supply: float | None
     # assessment (filled by scoring.assess)
-    safety_score: int
-    verdict: str  # CLEAN | RISKY | DANGER
+    safety_score: int | None  # None when verdict is UNKNOWN
+    verdict: str  # CLEAN | RISKY | DANGER | UNKNOWN
     risks: list[str]
     # holders
     holders_count: int | None
@@ -70,7 +70,7 @@ SCHEMA_KEYS: tuple[str, ...] = tuple(ScanResult.__annotations__)
 def empty_result(address: str, chain: str) -> dict[str, Any]:
     return {
         "address": address, "chain": chain, "symbol": None, "name": None, "decimals": 18, "total_supply": None,
-        "safety_score": 0, "verdict": "DANGER", "risks": [],
+        "safety_score": None, "verdict": "UNKNOWN", "risks": [],
         "holders_count": None, "holders_count_exact": False, "real_hands_pct": None, "top_holder_pct": None,
         "top_holders": [], "operators": [],
         "price_usd": None, "price_change_24h": None, "liquidity_usd": None, "fdv": None, "pair_address": None,

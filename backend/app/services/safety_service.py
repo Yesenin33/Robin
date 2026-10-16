@@ -20,8 +20,8 @@ from app.services.rpc import norm
 
 log = get_logger(__name__)
 
-CLEAN, RISKY, DANGER = "CLEAN", "RISKY", "DANGER"
-OK, WARN, BAD = "ok", "warn", "bad"
+CLEAN, RISKY, DANGER, UNKNOWN = "CLEAN", "RISKY", "DANGER", "UNKNOWN"
+OK, WARN, BAD, NA = "ok", "warn", "bad", "unknown"
 
 
 class ScanInProgress(Exception):
@@ -32,7 +32,7 @@ def is_incomplete(report: ScanReport, holders_stale_at: datetime | None) -> bool
     """A scan that produced a verdict but lacks what the Safety screen would show as dashes (holders, token
     identity) because a source failed. Worth a retry; a token that simply has no pool is not incomplete."""
     return holders_stale_at is not None or (
-        bool(report.errors) and (report.holders_count is None or report.symbol is None))
+        bool(report.errors) and (report.holders_count is None or report.symbol is None or report.verdict == UNKNOWN))
 
 
 # ---------- presentation (unit-tested) ----------
@@ -43,7 +43,11 @@ SUMMARY = {
     CLEAN: "Looks healthy. Lots of real people hold it and no one holder can move the price much.",
     RISKY: "Proceed with care.",
     DANGER: "Very likely a scam. Avoid.",
+    UNKNOWN: "We couldn't check this one. Some of the data we need wasn't available, so don't treat it as safe — try again in a minute.",
 }
+
+
+NO_DATA = "We couldn't get this"
 
 
 def _money(v: float) -> str:
@@ -58,24 +62,24 @@ def build_metrics(r: ScanReport, impact: float | None) -> list[Metric]:
     m: list[Metric] = []
     hc = r.holders_count
     m.append(Metric(key="holders", label="Holders", emoji="👥", value=f"{hc:,}" if hc is not None else "—",
-                    tone=(BAD if hc is not None and hc < 200 else OK),
-                    hint="Very few owners" if hc is not None and hc < 200 else "People who own it"))
+                    tone=NA if hc is None else BAD if hc < 200 else OK,
+                    hint=NO_DATA if hc is None else "Very few owners" if hc < 200 else "People who own it"))
     rh = r.real_hands_pct
-    rh_tone = OK if rh is None or rh >= 80 else WARN if rh >= 50 else BAD
-    rh_hint = ("Not bots or linked wallets" if rh_tone == OK
+    rh_tone = NA if rh is None else OK if rh >= 80 else WARN if rh >= 50 else BAD
+    rh_hint = (NO_DATA if rh is None else "Not bots or linked wallets" if rh_tone == OK
                else f"About {round((100 - rh) / 10)} in 10 look like bots" if rh_tone == WARN else "Most look fake")
     m.append(Metric(key="real_hands", label="Real hands", emoji="✋", value=f"{rh:.0f}%" if rh is not None else "—",
                     tone=rh_tone, hint=rh_hint))
-    it = OK if impact is None or impact < 20 else WARN if impact < 70 else BAD
+    it = NA if impact is None else OK if impact < 20 else WARN if impact < 70 else BAD
     m.append(Metric(key="top_holder_sell", label="If top holder sells", emoji="📉",
                     value=f"-{impact:.0f}%" if impact is not None else "—", tone=it,
-                    hint=("Price could nearly vanish" if it == BAD
-                          else f"Price could drop about {impact:.0f}%" if impact is not None else "Not enough data")))
+                    hint=(NO_DATA if impact is None else "Price could nearly vanish" if it == BAD
+                          else f"Price could drop about {impact:.0f}%")))
     liq = r.liquidity_usd
-    lt = OK if liq is None or liq >= 500_000 else WARN if liq >= 20_000 else BAD
+    lt = NA if liq is None else OK if liq >= 500_000 else WARN if liq >= 20_000 else BAD
     m.append(Metric(key="liquidity", label="Liquidity", emoji="💧", value=_money(liq) if liq is not None else "—",
                     tone=lt, hint={OK: "Easy to sell without a big loss", WARN: "Large sells will move the price",
-                                   BAD: "Hard to sell at any price"}[lt]))
+                                   BAD: "Hard to sell at any price", NA: NO_DATA}[lt]))
     return m
 
 
@@ -91,7 +95,7 @@ def evaluate(r: ScanReport) -> SafetyOut:
     return SafetyOut(
         address=r.address, symbol=r.symbol, name=r.name, score=score, verdict=verdict,
         swarm_verdict=None, summary=summary, risks=risks, metrics=build_metrics(r, impact),
-        buy_recommended=verdict != DANGER, price_usd=r.price_usd, scanned_at=datetime.now(timezone.utc),
+        buy_recommended=verdict in (CLEAN, RISKY), price_usd=r.price_usd, scanned_at=datetime.now(timezone.utc),
     )
 
 
@@ -196,7 +200,7 @@ class SafetyService:
             address=ca, symbol=token.symbol, name=token.name, score=score.score, verdict=score.verdict,
             swarm_verdict=score.swarm_verdict, summary=score.metrics.get("summary", SUMMARY[score.verdict]),
             risks=score.risks, metrics=[Metric(**m) for m in score.metrics.get("items", [])],
-            buy_recommended=score.verdict != DANGER,
+            buy_recommended=score.verdict in (CLEAN, RISKY),
             price_usd=float(token.price_usd) if token.price_usd is not None else None, scanned_at=ts,
             holders_stale_at=score.metrics.get("holders_stale_at"),
         )
