@@ -1,4 +1,5 @@
 import json
+import os
 import random
 import threading
 import time
@@ -169,9 +170,31 @@ def _read(url: str, timeout: float, tries: int) -> Any:
     raise HttpError(f"GET {url}: " + "; ".join(errors))
 
 
+CACHE: dict[str, tuple[float, Any]] = {}  # url -> (expires at, json): explorer reads only
+CACHE_MAX = 400
+
+
+def _cache_ttl() -> float:
+    try:
+        return float(os.environ.get("EXPLORER_CACHE_S", "600"))
+    except ValueError:
+        return 600.0
+
+
 def get_json(url: str, timeout: float = 20, tries: int = 3) -> Any:
+    """Explorer reads are the scarce resource (rate-gated, behind a browser): a read we made a few minutes ago is
+    reused instead of repeated just because another scan - e.g. a user's check - asks for the same token."""
+    explorer = is_explorer(url)
+    ttl = _cache_ttl() if explorer else 0
+    if ttl > 0 and (hit := CACHE.get(url)) and hit[0] > time.monotonic():
+        return hit[1]
     # explorer reads get one more attempt: a 429 burst usually clears within seconds
-    return _read(url, timeout, tries + 1 if is_explorer(url) else tries)
+    data = _read(url, timeout, tries + 1 if explorer else tries)
+    if ttl > 0:
+        if len(CACHE) >= CACHE_MAX:
+            CACHE.pop(next(iter(CACHE)))
+        CACHE[url] = (time.monotonic() + ttl, data)
+    return data
 
 
 def post_json(url: str, payload: Any, timeout: float = 15, tries: int = 2) -> Any:

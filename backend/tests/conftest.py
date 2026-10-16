@@ -137,6 +137,7 @@ def _reset_process_state():
         POOL.reset()
         LOGS_GATE.reset()
         ihttp.PACER.__init__()  # fresh lanes and clock
+        ihttp.CACHE.clear()
         icfg._overrides.clear()
         icfg._overrides["EXPLORER_API_URL"] = ""  # the default is the real explorer; tests that need one set their own
         icfg._proxy_prefix = ""

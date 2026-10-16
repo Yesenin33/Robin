@@ -19,6 +19,7 @@ QUEUE = "scan:queue"  # bulk: discovery, warmup, stale refresh
 QUEUED_SET = "scan:queued"
 PRIO_QUEUE = "scan:queue:prio"  # user-requested refreshes: never wait behind bulk work
 PRIO_SET = "scan:queued:prio"
+PRIO_ACTIVE = "scan:prio:active"  # >0 while a priority scan runs
 
 
 RETRY_ZSET = "scan:retry"  # members "p:<ca>" / "b:<ca>", score = due time (epoch s)
@@ -26,6 +27,10 @@ RETRY_ZSET = "scan:retry"  # members "p:<ca>" / "b:<ca>", score = due time (epoc
 
 def stale_marker(ca: str) -> str:
     return f"safety:stale:{ca}"
+
+
+def bg_marker(ca: str) -> str:
+    return f"safety:bg:{ca}"  # a verdict is being shown while this refresh runs (GET keeps serving it)
 
 
 def fails_key(ca: str) -> str:
@@ -110,8 +115,19 @@ async def drain_retries(redis: Redis, max_items: int = 20) -> int:
 
 
 async def run_scan(redis: Redis, ca: str, priority: bool = False) -> None:
-    if priority and not await redis.exists(stale_marker(ca)):
+    if priority and not (await redis.exists(stale_marker(ca)) or await redis.exists(bg_marker(ca))):
         return  # someone (the API's GET) already produced the fresh scan
+    if priority:
+        await redis.incr(PRIO_ACTIVE)
+        await redis.expire(PRIO_ACTIVE, 180)
+    try:
+        await _run_scan(redis, ca, priority)
+    finally:
+        if priority:
+            await redis.decr(PRIO_ACTIVE)
+
+
+async def _run_scan(redis: Redis, ca: str, priority: bool) -> None:
     async with SessionLocal() as db:
         svc = SafetyService(db, redis, get_engine())
         try:
@@ -157,8 +173,13 @@ async def drain_priority(redis: Redis) -> int:
 
 
 async def drain_queue(redis: Redis, max_items: int | None = None) -> int:
-    """Bulk: a bounded number per tick, run `scan_concurrency` at a time."""
+    """Bulk: a bounded number per tick, run `scan_concurrency` at a time.
+
+    Bulk pauses while a user's check is waiting or running: both draw on the same explorer slots, and a person
+    watching a spinner outranks a catalogue refresh (measured: 47 bulk scans made a user's check take ~105 s)."""
     s = get_settings()
+    if await redis.llen(PRIO_QUEUE) or await redis.exists(PRIO_ACTIVE):
+        return 0
     return await _drain(redis, QUEUE, QUEUED_SET, max_items or s.scan_bulk_per_tick, s.scan_concurrency, False)
 
 

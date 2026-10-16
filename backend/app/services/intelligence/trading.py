@@ -33,6 +33,10 @@ def analyze(transfers: list[Transfer], pair: str | None, token: str) -> dict:
             seller = max(to_pool, key=lambda t: t.value).frm
             net = sum(t.value for t in to_pool if t.frm == seller)
             fee = sum(t.value for t in txs if t.frm == seller and t.to != pair)
+            if fee >= net:
+                # The "seller" forwarded at least as much as it paid the pool: it is a router / aggregator hop
+                # (wrapped assets are routed through constantly), not a wallet paying a transfer fee.
+                continue
             if net + fee:
                 out["sells"] += 1
                 sell_taxes.append(fee / (net + fee) * 100)
@@ -41,6 +45,10 @@ def analyze(transfers: list[Transfer], pair: str | None, token: str) -> dict:
             total = sum(t.value for t in from_pool)
             # fee taken on the way: buyer forwards part to token/fee wallet in same tx
             fwd = sum(t.value for t in txs if t.frm == main.to and t.to != pair)
+            if fwd * 2 > main.value:
+                fwd = 0  # the receiver passes most of it on: a router hop, not a fee taken from a buyer
+            if total - main.value > main.value:
+                continue  # several comparable payouts in one tx: separate trades, not one trade plus a fee
             if total:
                 out["buys"] += 1
                 buy_taxes.append((total - main.value + fwd) / total * 100)

@@ -230,34 +230,70 @@ def _addr(a: str) -> str:
     return to_checksum_address(a)
 
 
-async def v4_pool_key(rpc, redis, pool_id: str, token: str, quote: str) -> PoolKey | None:
-    """The PoolKey (fee, tick spacing, hooks) of a v4 pool, read from its Initialize event; cached forever."""
+RECENT_WINDOW = 50_000  # blocks: the bounded fallback when a pool's creation block is unknown. Never block 0.
+
+
+async def v4_pool_key(rpc, redis, pool_id: str, token: str, quote: str, db=None, init_block: int | None = None) -> PoolKey | None:
+    """The PoolKey (fee, tick spacing, hooks) of a v4 pool.
+
+    Order: Redis -> our `pools` table (discovery stores it) -> the Initialize log in the ONE block that created
+    the pool (`init_block`) -> a bounded recent window. A whole-chain range is refused by every endpoint and
+    fails silently, which is why 96 % of tokens used to have no route. Returns None when the pool is not a
+    pool between `token` and `quote` (we then say so instead of quoting a different pool)."""
+    want = {token.lower(), quote.lower()}
     ck = f"swap:poolkey:{pool_id}"
     if cached := await redis.get(ck):
-        d = json.loads(cached)
-        return PoolKey(*d)
+        key = PoolKey(*json.loads(cached))
+        return key if {key.currency0.lower(), key.currency1.lower()} == want else None
+    row = None
+    if db is not None:
+        from sqlalchemy import select
+
+        from app.models import Pool
+
+        row = (await db.execute(select(Pool).where(Pool.pool_id == pool_id))).scalar_one_or_none()
+        if row is not None and row.fee is not None and row.hooks:
+            key = PoolKey(_addr(row.currency0), _addr(row.currency1), row.fee, row.tick_spacing, _addr(row.hooks))
+            await redis.set(ck, json.dumps(list(key.tuple())))
+            return key if {row.currency0.lower(), row.currency1.lower()} == want else None
+    block = init_block if init_block is not None else (row.block if row is not None else None)
+    if block is not None:
+        frm, to = hex(block), hex(block)
+    else:
+        head = int(await rpc.call("eth_blockNumber", []), 16)
+        frm, to = hex(max(0, head - RECENT_WINDOW)), hex(head)
     logs = await rpc.call("eth_getLogs", [{"address": POOL_MANAGER, "topics": [INITIALIZE_TOPIC, pool_id],
-                                           "fromBlock": "0x0", "toBlock": "latest"}])
+                                           "fromBlock": frm, "toBlock": to}])
     if not logs:
         return None
     lg = logs[0]
+    t = lg["topics"]
+    c0, c1 = _addr("0x" + t[2][-40:]), _addr("0x" + t[3][-40:])
     fee, spacing, hooks = parse_initialize_data(lg["data"])
-    c0, c1 = sorted([_addr(token), _addr(quote)], key=lambda a: int(a, 16))
     key = PoolKey(c0, c1, fee, spacing, hooks)
     await redis.set(ck, json.dumps(list(key.tuple())))
-    return key
+    if db is not None:  # write-through: the next quote (and every other process) needs no log read at all
+        from app.models import Pool
+
+        if row is None:
+            db.add(Pool(pool_id=pool_id, currency0=c0.lower(), currency1=c1.lower(), block=int(lg["blockNumber"], 16),
+                        fee=fee, tick_spacing=spacing, hooks=hooks.lower()))
+        else:
+            row.fee, row.tick_spacing, row.hooks = fee, spacing, hooks.lower()
+        await db.commit()
+    return key if {c0.lower(), c1.lower()} == want else None
 
 
 async def find_route(rpc, redis, s: Settings, token: str, quote_asset: str, amount_in: int, selling: bool,
-                     pool_id: str | None) -> tuple[Route, int]:
+                     pool_id: str | None, db=None, init_block: int | None = None) -> tuple[Route, int]:
     """Best (route, amount_out) among v3 fee tiers and the v4 pool, in ONE batch of eth_calls."""
     t_in, t_out = (_addr(token), _addr(quote_asset)) if selling else (_addr(quote_asset), _addr(token))
     cands: list[tuple[Route, str, str]] = []  # (route, quoter, calldata)
     if s.swap_quoter_v2:
         for fee in V3_FEES:
             cands.append((Route("v3", t_in, t_out, fee), s.swap_quoter_v2, v3_quote_call(t_in, t_out, amount_in, fee)))
-    if s.swap_v4_quoter and pool_id:
-        key = await v4_pool_key(rpc, redis, pool_id, token, quote_asset)
+    if s.swap_v4_quoter and pool_id and len(pool_id) == 66:  # a v4 pool id is 32 bytes; a 20-byte pair is v2/v3
+        key = await v4_pool_key(rpc, redis, pool_id, token, quote_asset, db, init_block)
         if key:
             zfo = t_in.lower() == key.currency0.lower()
             cands.append((Route("v4", t_in, t_out, key.fee, key), s.swap_v4_quoter, v4_quote_call(key, zfo, amount_in)))
@@ -306,7 +342,8 @@ class QuoteRequest:
     pay_with: str = "ETH"  # buy: ETH | USDG; sell: receive ETH | USDG
 
 
-async def quote(rpc, redis, s: Settings, req: QuoteRequest, meta: dict, market: dict | None, eth_usd: float | None) -> dict:
+async def quote(rpc, redis, s: Settings, req: QuoteRequest, meta: dict, market: dict | None, eth_usd: float | None,
+                db=None, init_block: int | None = None) -> dict:
     """meta: {symbol, decimals} of the token. market: its DexScreener facts (price, pool id). Returns the sheet payload."""
     if not s.swap_enabled:
         raise SwapError("In-app swap isn't switched on yet.")
@@ -320,7 +357,7 @@ async def quote(rpc, redis, s: Settings, req: QuoteRequest, meta: dict, market: 
     in_dec = meta["decimals"] if selling else (18 if eth_leg else 6)
     amount_in = to_raw(req.amount, in_dec)
     pool_id = (market or {}).get("pool_id")
-    route, amount_out = await find_route(rpc, redis, s, token, quote_asset, amount_in, selling, pool_id)
+    route, amount_out = await find_route(rpc, redis, s, token, quote_asset, amount_in, selling, pool_id, db, init_block)
     out_dec = q_dec if selling else meta["decimals"]
     min_out = min_received(amount_out, slip)
     deadline = int(time.time()) + DEADLINE_S

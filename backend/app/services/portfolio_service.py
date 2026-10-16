@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.models import Position, SafetyScore, Token
 from app.schemas.portfolio import Holding, PortfolioOut
+from app.services.intelligence.scoring import unsellable
 from app.services.market import MarketClient
 from app.services.rpc import RPCClient, norm
 from app.services.verdict_guard import effective_verdict
@@ -19,6 +20,7 @@ from app.services.verdict_guard import effective_verdict
 log = get_logger(__name__)
 META_TIMEOUT_S = 4.0  # symbols are nice to have: never hold the page for them
 NATIVE = "native"
+SMALL_SHARE_OF_POOL = 0.25  # a position above this share of its own pool cannot be sold at the shown price
 
 
 def change_from_pct(value: float, pct: float | None) -> float:
@@ -67,10 +69,11 @@ class PortfolioService:
         pairs = await self._resolve(held, by_addr)
 
         avg_costs = await self._avg_costs(address)
-        verdicts = await self._verdicts([t.id for t, _ in pairs if t.id is not None])
+        safety = await self._safety([t.id for t, _ in pairs if t.id is not None])
 
         holdings: list[Holding] = []
         excluded = 0
+        unverified: list[str] = []
         if native_raw:
             amt = native_raw / 1e18
             px = await self.market.native_price_usd(self.s.native_symbol)
@@ -82,7 +85,9 @@ class PortfolioService:
             px = float(t.price_usd) if t.price_usd is not None else None
             chg = float(t.price_change_24h) if t.price_change_24h is not None else None
             h = self._holding(t.address, t.symbol or "?", t.name, amt, px, chg, avg_costs.get(t.address))
-            h.verdict = verdicts.get(t.id)
+            h.image_url = getattr(t, "image_url", None) or None
+            row = safety.get(t.id)
+            h.verdict = effective_verdict(row[0], row[2]) if row else None
             h.liquidity_usd = float(t.liquidity_usd) if t.liquidity_usd is not None else None
             # Value you cannot take out is not value: a wallet holding 66 units of a token calling itself "ETH"
             # in a $2 055 pool was shown $161 609. The pool caps what any holder can realize, so such a row is
@@ -90,16 +95,23 @@ class PortfolioService:
             if h.liquidity_usd is not None and h.value_usd > h.liquidity_usd:
                 excluded += 1
                 continue
+            if t.id is None or row is None:
+                unverified.append(t.address)
+            h.not_counted_reason = self._not_counted(h, row)
+            h.counted = h.not_counted_reason is None
             holdings.append(h)
+        if unverified:
+            await self._queue_checks(unverified)
 
         holdings.sort(key=lambda h: h.value_usd, reverse=True)
-        total = sum(h.value_usd for h in holdings)
-        change = sum(change_from_pct(h.value_usd, h.change_24h_pct) for h in holdings)
+        counted = [h for h in holdings if h.counted]
+        total = sum(h.value_usd for h in counted)
+        change = sum(change_from_pct(h.value_usd, h.change_24h_pct) for h in counted)
         prev = total - change
         return PortfolioOut(
             address=address, total_usd=round(total, 2), change_24h_usd=round(change, 2),
             change_24h_pct=round(change / prev * 100, 2) if prev > 0 else 0.0,
-            holdings=holdings, excluded_count=excluded,
+            holdings=holdings, excluded_count=excluded, not_counted_count=sum(1 for h in holdings if not h.counted and h.value_usd > 0),
             updated_at=datetime.now(timezone.utc),
         )
 
@@ -109,28 +121,37 @@ class PortfolioService:
         it fails the token still shows, without a price."""
         unknown = [a for a in held if a not in by_addr]
         metas = await self._metas(unknown)
-        need_price = unknown + [a for a, t in by_addr.items() if a in held and (t.price_usd is None or t.liquidity_usd is None)]
+        need_price = unknown + [a for a, t in by_addr.items() if a in held and (t.price_usd is None or t.liquidity_usd is None or not t.image_url)]
         try:
             market = await self.market.tokens_market(need_price) if need_price else {}
         except Exception as e:  # noqa: BLE001
             log.warning("portfolio_market_failed", error=str(e))
             market = {}
         out: list[tuple[Any, int]] = []
+        learned = False
         for a, raw in held.items():
             m = market.get(a) or {}
             if a in by_addr:
                 t = by_addr[a]
-                if t.price_usd is None and m.get("price_usd") is not None:
+                if m.get("image_url") and not t.image_url:
+                    t.image_url = m["image_url"]  # remember the art: no per-render fetch from now on
+                    learned = True
+                if (t.price_usd is None and m.get("price_usd") is not None) or (not t.image_url and m.get("image_url")):
                     t = SimpleNamespace(id=t.id, address=a, symbol=t.symbol, name=t.name, decimals=t.decimals,
-                                        price_usd=m["price_usd"], price_change_24h=m.get("price_change_24h"),
-                                        liquidity_usd=m.get("liquidity_usd"))
+                                        image_url=t.image_url or m.get("image_url"),
+                                        price_usd=t.price_usd if t.price_usd is not None else m.get("price_usd"),
+                                        price_change_24h=t.price_change_24h if t.price_change_24h is not None else m.get("price_change_24h"),
+                                        liquidity_usd=t.liquidity_usd if t.liquidity_usd is not None else m.get("liquidity_usd"))
             else:
                 meta = metas.get(a) or {}
                 t = SimpleNamespace(id=None, address=a, symbol=meta.get("symbol") or m.get("symbol"),
                                     name=meta.get("name") or m.get("name"), decimals=meta.get("decimals"),
+                                    image_url=m.get("image_url"),
                                     price_usd=m.get("price_usd") if meta.get("decimals") is not None else None,
                                     price_change_24h=m.get("price_change_24h"), liquidity_usd=m.get("liquidity_usd"))
             out.append((t, raw))
+        if learned:
+            await self.db.commit()
         return out
 
     async def _metas(self, addrs: list[str]) -> dict[str, dict]:
@@ -173,7 +194,8 @@ class PortfolioService:
         )
         return {a: float(c) for a, c in rows if c is not None}
 
-    async def _verdicts(self, token_ids: list[int]) -> dict[int, str]:
+    async def _safety(self, token_ids: list[int]) -> dict[int, tuple[str, list[str], dict | None, datetime]]:
+        """Latest stored check per token: (verdict, risk lines, metrics, when)."""
         if not token_ids:
             return {}
         latest = (
@@ -181,11 +203,43 @@ class PortfolioService:
             .where(SafetyScore.token_id.in_(token_ids)).group_by(SafetyScore.token_id).subquery()
         )
         rows = await self.db.execute(
-            select(SafetyScore.token_id, SafetyScore.verdict, SafetyScore.metrics).join(
+            select(SafetyScore.token_id, SafetyScore.verdict, SafetyScore.risks, SafetyScore.metrics, SafetyScore.ts).join(
                 latest, (SafetyScore.token_id == latest.c.token_id) & (SafetyScore.ts == latest.c.ts)
             )
         )
-        return {tid: effective_verdict(v, m) for tid, v, m in rows.all()}
+        return {tid: (v, r or [], m, ts) for tid, v, r, m, ts in rows.all()}
+
+    def _not_counted(self, h: Holding, row) -> str | None:
+        """Why a holding stays out of the headline total (None = it counts). The headline must trace to value a
+        person could actually sell: missing/stale/UNKNOWN checks are unverified, never clean."""
+        if h.token == NATIVE or h.value_usd <= 0:
+            return None
+        if row is None:
+            return "Not checked yet"
+        verdict, risks, metrics, ts = row
+        ts = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - ts > timedelta(hours=self.s.portfolio_check_max_age_h):
+            return "Check is out of date"
+        verdict = effective_verdict(verdict, metrics)
+        if verdict == "DANGER":
+            return "Failed our safety check"
+        if verdict == "UNKNOWN":
+            return "We couldn't check it"
+        if unsellable(risks):
+            return "We can't confirm it can be sold"
+        if h.liquidity_usd is not None and h.value_usd > h.liquidity_usd * SMALL_SHARE_OF_POOL:
+            return "Too big for its pool"
+        return None
+
+    async def _queue_checks(self, addresses: list[str]) -> None:
+        """Held tokens nobody has checked get a (bulk) scan, so the next load can vouch for them."""
+        try:
+            from app.jobs.scan_job import enqueue_scan
+
+            for a in addresses[:50]:
+                await enqueue_scan(self.redis, a)
+        except Exception as e:  # noqa: BLE001 — a queue hiccup must never fail the portfolio
+            log.warning("portfolio_queue_checks_failed", error=str(e))
 
     async def snapshot(self, address: str) -> int:
         """Persist current holdings as positions (for PnL). Returns rows written."""

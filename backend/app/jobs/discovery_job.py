@@ -36,7 +36,8 @@ async def discover_pools(redis: Redis, from_block: int | None = None, rpc=None) 
     pools = await asyncio.to_thread(chain_index.new_pools, rpc, start, end, s.log_chunk_blocks)
     async with SessionLocal() as db:
         await pricing.save_pools(db, {p.pool_id: (p.currency0, p.currency1) for p in pools},
-                                 {p.pool_id: p.block for p in pools})
+                                 {p.pool_id: p.block for p in pools},
+                                 {p.pool_id: (p.fee, p.tick_spacing, p.hooks) for p in pools})
     weth = s.weth_address.lower() or None
     by_token: dict[str, chain_index.Pool] = {}
     for p in pools:
@@ -67,3 +68,51 @@ async def tracked_tokens(limit: int) -> list[Token]:
     async with SessionLocal() as db:
         rows = await db.execute(select(Token).order_by(Token.pool_init_block.desc().nulls_last(), Token.id.desc()).limit(limit))
         return list(rows.scalars())
+
+
+async def backfill_pool_keys(limit: int = 100, rpc=None) -> int:
+    """Pools stored before the key parts were kept: read each pool's Initialize log in the ONE block that created
+    it (bounded work per run). After this the swap never needs a historical log read."""
+    from app.models import Pool
+
+    rpc = rpc or make_rpc()
+    done = 0
+    async with SessionLocal() as db:
+        rows = (await db.execute(select(Pool).where(Pool.fee.is_(None), Pool.block.is_not(None)).limit(limit))).scalars().all()
+        for row in rows:
+            try:
+                logs = await asyncio.to_thread(
+                    rpc.call, "eth_getLogs", [{"address": chain_index.POOL_MANAGER, "topics": [chain_index.INITIALIZE_TOPIC, row.pool_id],
+                                              "fromBlock": hex(row.block), "toBlock": hex(row.block)}])
+            except Exception as e:  # noqa: BLE001 — try again next run
+                log.warning("pool_key_backfill_failed", pool=row.pool_id, error=str(e))
+                continue
+            for lg in logs or []:
+                if len(lg.get("topics") or []) == 4 and (p := chain_index.parse_initialize(lg)).fee is not None:
+                    row.fee, row.tick_spacing, row.hooks = p.fee, p.tick_spacing, p.hooks
+                    done += 1
+                    break
+        await db.commit()
+    log.info("pool_keys_backfilled", pools=done, tried=len(rows))
+    return done
+
+
+async def backfill_images(batch: int = 300, redis=None) -> int:
+    """Token art for rows that have none: DexScreener's batched endpoint (30 addresses per request), cached.
+    A token DexScreener has no art for is marked "" and retried only by its next scan."""
+    from app.core.redis import get_redis
+    from app.services.market import MarketClient
+
+    market = MarketClient(redis or get_redis())
+    found = 0
+    async with SessionLocal() as db:
+        rows = (await db.execute(select(Token).where(Token.image_url.is_(None)).limit(batch))).scalars().all()
+        info = await market.tokens_market([t.address for t in rows]) if rows else {}
+        for t in rows:
+            url = (info.get(t.address) or {}).get("image_url")
+            if url:
+                found += 1
+            t.image_url = url or ""  # "" = looked, nothing there
+        await db.commit()
+    log.info("images_backfilled", tried=len(rows), found=found)
+    return found

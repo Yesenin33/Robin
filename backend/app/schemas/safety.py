@@ -29,6 +29,7 @@ class SafetyOut(BaseModel):
     address: str
     symbol: str | None
     name: str | None
+    image_url: str | None = None
     score: int | None  # None when verdict is UNKNOWN
     verdict: Literal["CLEAN", "RISKY", "DANGER", "UNKNOWN"]
     swarm_verdict: str | None = None
@@ -42,6 +43,8 @@ class SafetyOut(BaseModel):
     holders_stale_at: datetime | None = None
     # set when a requested fresh scan failed and the previous result is shown
     stale: bool = False
+    # set when this is the previous result and a fresh check is running in the background
+    refreshing: bool = False
 
 
 class ScanQueued(BaseModel):
@@ -50,3 +53,5 @@ class ScanQueued(BaseModel):
     # queued = waiting for a worker, running = a worker is scanning it now
     state: Literal["queued", "running"] = "queued"
     retry_after_s: int = 3
+    stage: str | None = None  # contract | market | transfers | holders | scoring: what the worker is doing now
+    eta_s: int | None = None  # median of recent scans, None until we have measured some

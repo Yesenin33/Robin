@@ -13,6 +13,8 @@ class ChainConfig:
     geckoterminal_network: str
     holder_scan_blocks: int  # how far back to replay Transfer logs when no explorer
     log_chunk: int
+    wrapped_native: str = ""  # canonical wrapped ether on this chain (verified by canonical.verify, not trusted)
+    stable: str = ""  # canonical stablecoin (USDG)
 
 
 _overrides: dict[str, str] = {}
@@ -114,6 +116,8 @@ def chains() -> dict[str, ChainConfig]:
             geckoterminal_network=_env("GECKOTERMINAL_NETWORK", "robinhood"),
             holder_scan_blocks=int(_env("HOLDER_SCAN_BLOCKS", "60000")),
             log_chunk=int(_env("LOG_CHUNK_BLOCKS", "9999")),
+            wrapped_native=_env("CANONICAL_WRAPPED_NATIVE", "0x0bd7d308f8e1639fab988df18a8011f41eacad73").lower(),
+            stable=_env("CANONICAL_STABLE", "0x5fc5360d0400a0fd4f2af552add042d716f1d168").lower(),
         ),
     }
 

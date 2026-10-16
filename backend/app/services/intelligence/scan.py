@@ -4,7 +4,7 @@ Each stage is independent: a failing source is recorded in `errors` and the rest
 """
 from collections.abc import Callable
 
-from app.services.intelligence import contract, holders, market, operators, trading
+from app.services.intelligence import progress, canonical, contract, holders, market, operators, trading
 from app.services.intelligence.config import get_chain
 from app.services.intelligence.detect import is_address
 from app.services.intelligence.http import get_json
@@ -35,6 +35,7 @@ def scan(address: str, chain: str = "robinhood", *, transport: Transport | None 
             return None
 
     # 1. contract
+    progress.report(progress.CONTRACT)
     meta = stage("meta", lambda: contract.read_meta(rpc, ca))
     if meta:
         sources.append("rpc")
@@ -42,8 +43,12 @@ def scan(address: str, chain: str = "robinhood", *, transport: Transport | None 
         sec = stage("security", lambda: contract.security(rpc, ca, meta["owner"]))
         if sec:
             r.update({k: sec[k] for k in ("proxy", "can_mint", "blacklist", "owner_renounced")})
+        kind = stage("canonical", lambda: canonical.verify(rpc, cfg, ca, meta, sec["selectors"] if sec else None))
+        if kind:
+            sources.append(kind)
 
     # 2. market
+    progress.report(progress.MARKET)
     m = stage("market", lambda: market.fetch_market(cfg, ca, fetch))
     if m:
         sources.append(m["source"])
@@ -56,6 +61,8 @@ def scan(address: str, chain: str = "robinhood", *, transport: Transport | None 
     supply = meta["total_supply_raw"] if meta else None
     if supply:
         r["total_supply"] = supply / 10 ** r["decimals"]
+
+    progress.report(progress.TRANSFERS)
 
     def load_transfers():
         problems = []
@@ -78,6 +85,7 @@ def scan(address: str, chain: str = "robinhood", *, transport: Transport | None 
     tr = stage("transfers", load_transfers)
     transfers, from_genesis = tr if tr else ([], False)
 
+    progress.report(progress.HOLDERS)
     hd = None
     if cfg.explorer_api:
         hd = stage("holders_explorer", lambda: holders.from_explorer(cfg, ca))
@@ -109,6 +117,7 @@ def scan(address: str, chain: str = "robinhood", *, transport: Transport | None 
         raise ScanUnavailable("; ".join(errors))
 
     # 4. assessment
+    progress.report(progress.SCORING)
     a = assess(r)
     r["safety_score"], r["verdict"], r["risks"] = a.score, a.verdict, a.risks
     return r

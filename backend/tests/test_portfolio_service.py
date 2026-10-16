@@ -2,8 +2,9 @@ import json
 
 import httpx
 import pytest
+from sqlalchemy import delete
 
-from app.models import Token
+from app.models import SafetyScore, Token
 from app.services.portfolio_service import PortfolioService, change_from_pct, next_avg_cost
 from app.services.rpc import SEL_BALANCE_OF, RPCClient
 
@@ -46,7 +47,22 @@ async def svc(db, redis):
         Token(address=EMPTY, symbol="ZERO", decimals=18, price_usd=1),
     ])
     await db.commit()
+    for i in (1, 2, 3):
+        await check(db, i)
     return PortfolioService(db, redis, fake_rpc(), FakeMarket())
+
+
+ITEMS = {"items": [{"key": k, "label": k, "emoji": "x", "value": "1", "tone": "ok", "hint": "h"}
+                   for k in ("holders", "real_hands", "liquidity")]}
+
+
+async def check(db, token_id, verdict="CLEAN", risks=None, ts=None):
+    """A stored safety check, as the scan job writes it."""
+    row = SafetyScore(token_id=token_id, score=80, verdict=verdict, risks=risks or [], metrics=ITEMS)
+    if ts:
+        row.ts = ts
+    db.add(row)
+    await db.commit()
 
 
 def test_helpers():
@@ -159,7 +175,7 @@ async def test_every_nonzero_balance_gets_a_row_not_just_indexed_tokens(db, redi
     assert seen.count("alchemy_getTokenBalances") == 1
     assert max(int(x.split(":")[1]) for x in seen if x.startswith("http:")) <= 50  # batched, never 1 request per token
     assert sum(x.startswith("http:") for x in seen) <= 6  # not one request per token
-    assert len(mkt.asked) == 1 and len(mkt.asked[0]) == 44
+    assert len(mkt.asked) == 1 and len(mkt.asked[0]) == 47  # 44 unknown + 3 indexed ones without art
 
 
 async def test_a_failing_market_lookup_does_not_fail_the_page(db, redis):
@@ -189,6 +205,7 @@ async def test_unrealizable_holding_is_left_out_entirely(db, redis):
     """A 66-unit token calling itself ETH in a $2 055 pool was shown as a $161 609 balance."""
     db.add(Token(address=HOOD, symbol="ETH", name="Ethereum", decimals=18, price_usd=2448.63, liquidity_usd=2055.63))
     await db.commit()
+    await check(db, 1, "RISKY")
     seen: list[str] = []
     svc = PortfolioService(db, redis, held_rpc({HOOD: 66 * 10**18}, seen), Market())
     p = await svc.get(OWNER)
@@ -242,3 +259,52 @@ async def test_portfolio_asks_the_chain_once_instead_of_per_token(db, redis):
     assert seen.count("alchemy_getTokenBalances") == 1
     assert not any(h.value_usd for h in p.holdings if h.symbol == "?")  # ...with no invented value
 
+
+
+async def _one_token_wallet(db, redis, *, price=1.0, liq=1_000_000.0, amount=66, queue=None):
+    db.add(Token(address=HOOD, symbol="USDT", name="Tether USD", decimals=18, price_usd=price, liquidity_usd=liq))
+    await db.commit()
+    return PortfolioService(db, redis, held_rpc({HOOD: amount * 10**18}, []), Market())
+
+
+async def test_fake_tether_stays_listed_but_out_of_the_headline(db, redis):
+    """$66 position, $2 040 pool: the size guard passes it, our own scan says it may be unsellable."""
+    svc = await _one_token_wallet(db, redis, liq=2040.0)
+    await check(db, 1, "RISKY", ["We haven't seen anyone sell it recently, so we can't confirm you could sell it.",
+                                 "Hard to sell at any price — very little liquidity."])
+    p = await svc.get(OWNER)
+    h = p.holdings[0]
+    assert h.symbol == "USDT" and h.counted is False and h.not_counted_reason == "We can't confirm it can be sold"
+    assert p.total_usd == 0 and p.not_counted_count == 1
+
+
+async def test_danger_unknown_stale_and_unchecked_are_not_counted(db, redis):
+    from datetime import datetime, timedelta, timezone
+
+    for verdict, ts, why in (("DANGER", None, "Failed our safety check"), ("UNKNOWN", None, "We couldn't check it"),
+                             ("CLEAN", datetime.now(timezone.utc) - timedelta(days=30), "Check is out of date")):
+        svc = await _one_token_wallet(db, redis)
+        await check(db, 1, verdict, [], ts)
+        p = await svc.get(OWNER, use_cache=False)
+        assert (p.holdings[0].counted, p.holdings[0].not_counted_reason, p.total_usd) == (False, why, 0)
+        await db.execute(delete(SafetyScore))
+        await db.delete(await db.get(Token, 1))
+        await db.commit()
+    svc = await _one_token_wallet(db, redis)  # never checked at all: unverified, not clean
+    p = await svc.get(OWNER, use_cache=False)
+    assert p.holdings[0].not_counted_reason == "Not checked yet" and p.total_usd == 0
+    assert await redis.llen("scan:queue") == 1  # ...and a check is queued so the next load can vouch for it
+
+
+async def test_a_sellable_checked_holding_counts_and_native_always_does(db, redis):
+    svc = await _one_token_wallet(db, redis, amount=66)
+    await check(db, 1, "CLEAN")
+    p = await svc.get(OWNER)
+    assert p.holdings[0].counted and p.total_usd == 66 and p.not_counted_count == 0
+
+
+async def test_a_position_that_is_a_large_share_of_its_pool_does_not_count(db, redis):
+    svc = await _one_token_wallet(db, redis, liq=100.0, amount=40)  # $40 in a $100 pool: 40 % of the pool
+    await check(db, 1, "CLEAN")
+    p = await svc.get(OWNER)
+    assert p.holdings[0].not_counted_reason == "Too big for its pool" and p.total_usd == 0

@@ -18,6 +18,14 @@ class Assessment:
     critical: bool
 
 
+# Risk lines that mean "you may not be able to turn this into money". The portfolio headline reads them.
+UNSELLABLE_MARKERS = ("can't confirm you could sell", "Hard to sell at any price", "may not be able to sell")
+
+
+def unsellable(risks: list[str] | None) -> bool:
+    return any(m in line for line in risks or [] for m in UNSELLABLE_MARKERS)
+
+
 def evidence_gaps(r: dict) -> list[str]:
     """What we still need before we may call a token CLEAN or RISKY. Empty list = the evidence bar is met.
 
@@ -66,6 +74,9 @@ def assess(r: dict) -> Assessment:
     critical = False
     cap_at_risky = False
     renounced = r.get("owner_renounced")
+    sources = r.get("sources") or []
+    wrapped = "verified:wrapped-native" in sources  # canonical.verify: backed 1:1, WETH9 bytecode
+    infra = wrapped or "verified:stable" in sources  # verified chain infrastructure: skip checks that don't apply
 
     def hit(points: int, line: str, crit: bool = False) -> None:
         nonlocal score, critical
@@ -73,28 +84,32 @@ def assess(r: dict) -> Assessment:
         risks.append(line)
         critical = critical or crit
 
-    if r.get("honeypot"):
+    if infra:
+        pass  # a verified wrapped asset / stablecoin is sold through every pool: no honeypot or tax reading applies
+    elif r.get("honeypot"):
         hit(60, "You may not be able to sell this token.", True)
     elif r.get("honeypot") is None:
         # Nobody was seen selling (and too few buys to say it is stuck): we cannot confirm it can be sold.
         # Absent evidence of a honeypot is not evidence that it is not one, so it can never be CLEAN.
         cap_at_risky = True
         risks.append("We haven't seen anyone sell it recently, so we can't confirm you could sell it.")
-    for side, tax in (("Selling", r.get("sell_tax")), ("Buying", r.get("buy_tax"))):
+    for side, tax in (() if infra else (("Selling", r.get("sell_tax")), ("Buying", r.get("buy_tax")))):
         if tax is not None and tax >= 30:
             hit(40, f"{side} costs a {tax:.0f}% fee.", True)
         elif tax is not None and tax >= 10:
             hit(15, f"{side} costs a {tax:.0f}% fee.")
+    if wrapped:
+        renounced = True  # nobody owns a verified wrapper: no creator lines at all
     if r.get("blacklist") and renounced is not True:
         hit(20, "The creator can block wallets from selling.", renounced is False)
     if r.get("can_mint") and renounced is not True:
         hit(20, "The creator can print more of it at any time.")
-    if r.get("proxy") and renounced is not True:
+    if r.get("proxy") and renounced is not True and not wrapped:
         hit(10, "The creator can change how the token works.")
     if renounced is False:
         hit(5, "The creator still controls the contract.")
 
-    top = r.get("top_holder_pct")
+    top = None if infra else r.get("top_holder_pct")  # a stablecoin's / wrapper's biggest holder is not a "dumper"
     if top is not None and top >= 50:
         hit(40, "One wallet owns most of it.", True)
     elif top is not None and top >= 20:
@@ -125,7 +140,7 @@ def assess(r: dict) -> Assessment:
     hc = r.get("holders_count")
     if hc is not None and hc < 200:
         hit(10, "Very few people own it.")
-    if r.get("has_site") is False and r.get("has_twitter") is False:
+    if r.get("has_site") is False and r.get("has_twitter") is False and not infra:
         hit(5, "No website or Twitter found.")
 
     score = max(0, min(100, score))

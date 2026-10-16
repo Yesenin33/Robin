@@ -11,6 +11,7 @@ class CopyItemOut(BaseModel):
     side: str  # buy | sell
     token_symbol: str
     token_address: str | None = None
+    token_image_url: str | None = None
     tx_hash: str | None = None
     amount_usd: float | None = None
     reason: str = ""

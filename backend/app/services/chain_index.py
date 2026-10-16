@@ -26,6 +26,9 @@ class Pool:
     currency0: str
     currency1: str
     block: int
+    fee: int | None = None  # the rest of the v4 PoolKey, decoded from the Initialize data
+    tick_spacing: int | None = None
+    hooks: str | None = None
 
 
 @dataclass
@@ -72,7 +75,16 @@ def get_logs(rpc: Rpc, flt: dict, start: int, end: int, chunk: int) -> list[dict
 
 def parse_initialize(log: dict) -> Pool:
     t = log["topics"]
-    return Pool(pool_id=t[1].lower(), currency0=topic_addr(t[2]), currency1=topic_addr(t[3]), block=to_int(log["blockNumber"]))
+    fee = spacing = hooks = None
+    data = (log.get("data") or "")[2:]
+    if len(data) >= 192:  # fee(uint24) tickSpacing(int24) hooks(address) sqrtPriceX96 tick, one 32-byte word each
+        fee = int(data[0:64], 16) & 0xFFFFFF
+        spacing = int(data[64:128], 16) & 0xFFFFFF
+        if spacing >= 0x800000:  # int24 two's complement
+            spacing -= 0x1000000
+        hooks = "0x" + data[128:192][-40:]
+    return Pool(pool_id=t[1].lower(), currency0=topic_addr(t[2]), currency1=topic_addr(t[3]), block=to_int(log["blockNumber"]),
+                fee=fee, tick_spacing=spacing, hooks=hooks)
 
 
 def new_pools(rpc: Rpc, start: int, end: int, chunk: int) -> list[Pool]:

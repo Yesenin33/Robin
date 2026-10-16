@@ -43,6 +43,12 @@ def _num(v) -> float | None:
         return None
 
 
+def image_of(pair: dict) -> str | None:
+    """DexScreener token art. Only https URLs, bounded length: it ends up in an <img src> and a column."""
+    url = ((pair.get("info") or {}).get("imageUrl") or "").strip()
+    return url if url.startswith("https://") and len(url) <= 512 else None
+
+
 def best_pairs(pairs: list[dict]) -> dict[str, dict]:
     """token address -> market facts taken from its deepest pool (liquidity decides which price to trust)."""
     out: dict[str, dict] = {}
@@ -55,6 +61,7 @@ def best_pairs(pairs: list[dict]) -> dict[str, dict]:
                 "symbol": base.get("symbol"), "name": base.get("name"), "price_usd": _num(p.get("priceUsd")),
                 "price_change_24h": _num((p.get("priceChange") or {}).get("h24")), "liquidity_usd": liq,
                 "pool_id": (p.get("pairAddress") or "").lower() or None,  # a v4 pool id on this chain
+                "image_url": image_of(p),
             }
     return out
 

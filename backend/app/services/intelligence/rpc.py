@@ -220,6 +220,9 @@ class Rpc:
     def block_number(self) -> int:
         return to_int(self.call("eth_blockNumber", []))
 
+    def balance(self, addr: str) -> int:
+        return to_int(self.call("eth_getBalance", [addr, "latest"]))
+
     def get_code(self, addr: str) -> str:
         return self.call("eth_getCode", [addr, "latest"]) or "0x"
 

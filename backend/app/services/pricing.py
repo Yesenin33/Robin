@@ -78,13 +78,20 @@ async def load_pools(db: AsyncSession) -> dict[str, tuple[str, str]]:
     return {p: (c0, c1) for p, c0, c1 in (await db.execute(select(Pool.pool_id, Pool.currency0, Pool.currency1))).all()}
 
 
-async def save_pools(db: AsyncSession, new: dict[str, tuple[str, str]], blocks: dict[str, int] | None = None) -> None:
+async def save_pools(db: AsyncSession, new: dict[str, tuple[str, str]], blocks: dict[str, int] | None = None,
+                     keys: dict[str, tuple[int | None, int | None, str | None]] | None = None) -> None:
+    """Persist pools. `keys` = pool id -> (fee, tick spacing, hooks) so the swap never reads history logs."""
     if not new:
         return
-    have = {p for (p,) in (await db.execute(select(Pool.pool_id).where(Pool.pool_id.in_(list(new))))).all()}
+    have = {p: row for p, row in ((r.pool_id, r) for r in (await db.execute(select(Pool).where(Pool.pool_id.in_(list(new))))).scalars())}
     for pid, (c0, c1) in new.items():
-        if pid not in have:
-            db.add(Pool(pool_id=pid, currency0=c0, currency1=c1, block=(blocks or {}).get(pid)))
+        fee, spacing, hooks = (keys or {}).get(pid, (None, None, None))
+        row = have.get(pid)
+        if row is None:
+            db.add(Pool(pool_id=pid, currency0=c0, currency1=c1, block=(blocks or {}).get(pid), fee=fee,
+                        tick_spacing=spacing, hooks=hooks))
+        elif row.fee is None and fee is not None:  # backfill pools stored before the key parts were kept
+            row.fee, row.tick_spacing, row.hooks = fee, spacing, hooks
     await db.commit()
 
 

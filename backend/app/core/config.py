@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     chain_id: int = 4663
     rpc_url: str = "https://rpc.mainnet.chain.robinhood.com"
     native_symbol: str = "ETH"
+    portfolio_check_max_age_h: int = 72  # an older safety check no longer vouches for a holding
 
     # In-app swap. Off until the owner has verified the addresses below against the chain
     # (`python -m app.tools.verify_swap`). We never sign: the server only quotes and builds calldata.

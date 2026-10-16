@@ -13,6 +13,7 @@ class Token(IdMixin, TimestampMixin, Base):
     symbol: Mapped[str | None] = mapped_column(String(32))
     name: Mapped[str | None] = mapped_column(String(128))
     decimals: Mapped[int] = mapped_column(Integer, default=18)
+    image_url: Mapped[str | None] = mapped_column(String(512))  # DexScreener info.imageUrl, captured at scan time
     # Robinhood Chain pools are Uniswap-V4 style: the "pair" is a 32-byte pool id (0x + 64 hex), not a 20-byte address
     pair_address: Mapped[str | None] = mapped_column(String(78))
     price_usd: Mapped[float | None] = mapped_column(Numeric(38, 18))

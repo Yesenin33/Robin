@@ -2,6 +2,7 @@
 import asyncio
 import dataclasses
 import json
+import time
 from datetime import datetime, timedelta, timezone
 
 from redis.asyncio import Redis
@@ -15,6 +16,7 @@ from app.schemas.safety import NO_DATA_HINT as NO_DATA
 from app.schemas.safety import NO_VALUE, Metric, SafetyOut
 from app.services.engine import ScanEngine, ScanReport
 from app.services.intelligence import ScanUnavailable
+from app.services.intelligence import progress
 from app.services.intelligence.http import set_priority
 from app.services.intelligence.scoring import assess, sell_impact_pct
 from app.services.rpc import norm
@@ -22,6 +24,7 @@ from app.services.verdict_guard import effective_verdict, missing_metrics
 
 log = get_logger(__name__)
 
+DURATIONS_KEY = "scan:durations"
 CLEAN, RISKY, DANGER, UNKNOWN = "CLEAN", "RISKY", "DANGER", "UNKNOWN"
 OK, WARN, BAD, NA = "ok", "warn", "bad", "unknown"
 
@@ -134,6 +137,9 @@ class SafetyService:
                 await self._cache(fresh)
                 return fresh
         if not inline:
+            if not refresh_requested and (old := await self._fresh_from_db(ca, max_age=False)) and old.verdict != UNKNOWN:
+                old.refreshing = True  # a verdict exists: show it now, the API refreshes it in the background
+                return old
             if refresh_requested and await self.redis.exists(f"scan:cool:{ca}") \
                     and (previous := await self._fresh_from_db(ca, max_age=False)):
                 previous.stale = True  # the refresh failed in the worker: keep showing the last known result
@@ -154,25 +160,41 @@ class SafetyService:
         if not await self.redis.set(lock, "1", nx=True, ex=self.s.scan_timeout_s + 5):
             raise ScanInProgress(ca)
         try:
+            loop = asyncio.get_running_loop()
+
+            def stage(name: str) -> None:  # called from the scan thread: what the waiting screen narrates
+                asyncio.run_coroutine_threadsafe(self.redis.set(f"scan:stage:{ca}", name, ex=300), loop)
+
             def run() -> ScanReport:
                 set_priority(priority)  # user-requested scans take explorer slots ahead of bulk ones
-                return self.engine.scan(ca)
+                with progress.sink(stage):
+                    return self.engine.scan(ca)
 
+            t0 = time.monotonic()
             report = await asyncio.wait_for(asyncio.to_thread(run), self.s.scan_timeout_s)
+            await self._note_duration(time.monotonic() - t0)
             holders_stale_at = await self._fill_stale_holders(report)
             out = evaluate(report)
             out.holders_stale_at = holders_stale_at
             self.last_report = report
             self.last_incomplete = is_incomplete(report, holders_stale_at)
-            await self._persist(report, out)
+            out.image_url = await self._persist(report, out)
             # an incomplete result is shown briefly, then re-scanned: it must not sit in the cache for 10 minutes
             await self._cache(out, ttl=60 if self.last_incomplete else None)
-            await self.redis.delete(f"safety:stale:{ca}")
+            await self.redis.delete(f"safety:stale:{ca}", f"safety:bg:{ca}", f"scan:stage:{ca}")
             log.info("safety_scanned", ca=ca, engine=report.engine or self.engine.name, sources=report.sources,
                      errors=report.errors, score=out.score, verdict=out.verdict)
             return out
         finally:
             await self.redis.delete(lock)
+
+    async def _note_duration(self, seconds: float) -> None:
+        """Recent scan durations: the 'usually N seconds' the waiting screen quotes is measured, not guessed."""
+        try:
+            await self.redis.lpush(DURATIONS_KEY, f"{seconds:.1f}")
+            await self.redis.ltrim(DURATIONS_KEY, 0, 49)
+        except Exception:  # noqa: BLE001
+            pass
 
     async def _fill_stale_holders(self, r: ScanReport) -> datetime | None:
         """Explorer throttled / down -> holders came back empty. Show the last good snapshot instead of dashes
@@ -222,7 +244,8 @@ class SafetyService:
             if max_age and not await self.redis.exists(f"scan:cool:{ca}"):
                 return None  # re-scan it under the current rules instead of serving the old claim
         return SafetyOut(
-            address=ca, symbol=token.symbol, name=token.name, score=sc if verdict == UNKNOWN else score.score,
+            address=ca, symbol=token.symbol, name=token.name, image_url=token.image_url or None,
+            score=sc if verdict == UNKNOWN else score.score,
             verdict=verdict, swarm_verdict=score.swarm_verdict,
             summary=summary or score.metrics.get("summary", SUMMARY[score.verdict]),
             risks=risks, metrics=[Metric(**m) for m in score.metrics.get("items", [])],
@@ -231,8 +254,9 @@ class SafetyService:
             holders_stale_at=score.metrics.get("holders_stale_at"),
         )
 
-    async def _persist(self, r: ScanReport, out: SafetyOut) -> None:
+    async def _persist(self, r: ScanReport, out: SafetyOut) -> str | None:
         token = await upsert_token(self.db, r)
+        await self._learn_image(token)
         previous = (await self.db.execute(
             select(SafetyScore.verdict).where(SafetyScore.token_id == token.id).order_by(SafetyScore.ts.desc()).limit(1)
         )).scalar_one_or_none()
@@ -250,12 +274,26 @@ class SafetyService:
             raw=json.loads(json.dumps(r.raw, default=str)),
         ))
         await self.db.commit()
+        image = token.image_url or None
         try:  # a verdict that got worse alerts holders; never fail the scan over it
             from app.services.alert_service import on_verdict
 
             await on_verdict(self.db, self.redis, token, previous, out.verdict, out.risks)
         except Exception as e:  # noqa: BLE001
             log.warning("verdict_alert_failed", ca=r.address, error=str(e))
+        return image
+
+    async def _learn_image(self, token: Token) -> None:
+        """Token art from DexScreener's (batched, cached) endpoint; a failure just leaves the monogram."""
+        if token.image_url:
+            return
+        try:
+            from app.services.market import MarketClient
+
+            found = (await MarketClient(self.redis).tokens_market([token.address])).get(token.address) or {}
+            token.image_url = found.get("image_url") or None
+        except Exception as e:  # noqa: BLE001
+            log.warning("token_image_failed", ca=token.address, error=str(e))
 
 
 async def upsert_token(db: AsyncSession, r: ScanReport) -> Token:

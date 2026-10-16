@@ -135,7 +135,8 @@ async def feed(db: AsyncSession, user_id: int, limit: int, only_followed: bool) 
                                float(ev.eth_amount) if ev.eth_amount is not None else None, verdict, risks)
         out.append({
             "address": ev.address, "ts": ev.ts, "side": ev.side, "token_symbol": symbol,
-            "token_address": ev.token_address, "tx_hash": ev.tx_hash,
+            "token_address": ev.token_address, "token_image_url": (tok.image_url or None) if tok else None,
+            "tx_hash": ev.tx_hash,
             "amount_usd": float(ev.amount_usd) if ev.amount_usd is not None else None,
             "reason": reason, "risk_tag": tag, "verdict": verdict, "following": ev.address in followed,
         })

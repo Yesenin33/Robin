@@ -98,4 +98,5 @@ def security(rpc: Rpc, token: str, owner: str | None) -> dict:
         "trading_toggle": bool(selectors & TRADING_TOGGLE),
         "mutable_fees": bool(selectors & FEE_SETTER),
         "owner_renounced": owner_renounced,
+        "selectors": selectors,  # internal (canonical.verify); not part of the scan schema
     }
