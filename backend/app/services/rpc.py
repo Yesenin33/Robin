@@ -192,6 +192,22 @@ class RPCClient:
             "total_supply": decode_uint(res[3]),
         }
 
+    async def erc20_metas(self, tokens: list[str]) -> dict[str, dict]:
+        """symbol / name / decimals for many tokens in ONE batch (3 eth_calls each, chunked by the batch size).
+        A token whose calls revert gets None fields; nothing here raises for a single odd token."""
+        calls = [("eth_call", [{"to": t, "data": sel}, "latest"]) for t in tokens for sel in (SEL_SYMBOL, SEL_NAME, SEL_DECIMALS)]
+        res = await self.batch(calls)
+        out = {}
+        for i, t in enumerate(tokens):
+            sym, name, dec = res[3 * i : 3 * i + 3]
+            try:
+                decimals = decode_uint(dec) if dec and dec != "0x" else None
+                out[t] = {"symbol": decode_string(sym), "name": decode_string(name),
+                          "decimals": decimals if decimals is not None and decimals <= 77 else None}
+            except Exception:  # noqa: BLE001
+                out[t] = {"symbol": None, "name": None, "decimals": None}
+        return out
+
     async def block_number(self) -> int:
         return decode_uint(await self.call("eth_blockNumber", []))
 

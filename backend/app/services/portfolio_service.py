@@ -1,16 +1,23 @@
+import asyncio
+import json
 from datetime import datetime, timezone
+from types import SimpleNamespace
+from typing import Any
 
 from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
 from app.models import Position, SafetyScore, Token
 from app.schemas.portfolio import Holding, PortfolioOut
 from app.services.market import MarketClient
 from app.services.rpc import RPCClient, norm
 from app.services.verdict_guard import effective_verdict
 
+log = get_logger(__name__)
+META_TIMEOUT_S = 4.0  # symbols are nice to have: never hold the page for them
 NATIVE = "native"
 
 
@@ -56,15 +63,14 @@ class PortfolioService:
         held = await self.rpc.held_erc20_balances(address)
         if held is None:
             priced = [t for t in tokens if t.price_usd is not None]
-            pairs = list(zip(priced, await self.rpc.erc20_balances(address, [t.address for t in priced])))
-        else:
-            pairs = [(by_addr[a], raw) for a, raw in held.items() if a in by_addr]
+            held = {t.address: raw for t, raw in zip(priced, await self.rpc.erc20_balances(address, [t.address for t in priced])) if raw}
+        pairs = await self._resolve(held, by_addr)
 
         avg_costs = await self._avg_costs(address)
-        verdicts = await self._verdicts([t.id for t, _ in pairs])
+        verdicts = await self._verdicts([t.id for t, _ in pairs if t.id is not None])
 
         holdings: list[Holding] = []
-        unrealizable = 0.0
+        excluded = 0
         if native_raw:
             amt = native_raw / 1e18
             px = await self.market.native_price_usd(self.s.native_symbol)
@@ -72,32 +78,81 @@ class PortfolioService:
         for t, raw in pairs:
             if not raw:
                 continue
-            amt = raw / 10 ** (t.decimals or 18)
+            amt = raw / 10 ** (t.decimals if t.decimals is not None else 18)
             px = float(t.price_usd) if t.price_usd is not None else None
             chg = float(t.price_change_24h) if t.price_change_24h is not None else None
             h = self._holding(t.address, t.symbol or "?", t.name, amt, px, chg, avg_costs.get(t.address))
             h.verdict = verdicts.get(t.id)
-            # Value you cannot take out is not value. A wallet holding 66 units of a token that calls
-            # itself "ETH" in a $2 055 pool was shown a $161 609 balance it could never sell — the pool
-            # itself caps what any holder can realize, and our own scan says a top-holder sell takes the
-            # price to -100%. Keep the row (honest) but count it as nothing.
-            liq = float(t.liquidity_usd) if t.liquidity_usd is not None else None
-            if liq is not None and h.value_usd > liq:
-                h.unrealizable = True
-                unrealizable += h.value_usd
+            h.liquidity_usd = float(t.liquidity_usd) if t.liquidity_usd is not None else None
+            # Value you cannot take out is not value: a wallet holding 66 units of a token calling itself "ETH"
+            # in a $2 055 pool was shown $161 609. The pool caps what any holder can realize, so such a row is
+            # left out of the list and the total; only the count is reported.
+            if h.liquidity_usd is not None and h.value_usd > h.liquidity_usd:
+                excluded += 1
+                continue
             holdings.append(h)
 
         holdings.sort(key=lambda h: h.value_usd, reverse=True)
-        counted = [h for h in holdings if not h.unrealizable]
-        total = sum(h.value_usd for h in counted)
-        change = sum(change_from_pct(h.value_usd, h.change_24h_pct) for h in counted)
+        total = sum(h.value_usd for h in holdings)
+        change = sum(change_from_pct(h.value_usd, h.change_24h_pct) for h in holdings)
         prev = total - change
         return PortfolioOut(
             address=address, total_usd=round(total, 2), change_24h_usd=round(change, 2),
             change_24h_pct=round(change / prev * 100, 2) if prev > 0 else 0.0,
-            holdings=holdings, unrealizable_usd=round(unrealizable, 2),
+            holdings=holdings, excluded_count=excluded,
             updated_at=datetime.now(timezone.utc),
         )
+
+    async def _resolve(self, held: dict[str, int], by_addr: dict[str, Token]) -> list[tuple[Any, int]]:
+        """A row for EVERY non-zero balance. Tokens we never indexed get symbol/name/decimals (one batch of
+        eth_calls, cached) and price + pool depth (DexScreener, batched, cached). Each lookup is isolated: if
+        it fails the token still shows, without a price."""
+        unknown = [a for a in held if a not in by_addr]
+        metas = await self._metas(unknown)
+        need_price = unknown + [a for a, t in by_addr.items() if a in held and (t.price_usd is None or t.liquidity_usd is None)]
+        try:
+            market = await self.market.tokens_market(need_price) if need_price else {}
+        except Exception as e:  # noqa: BLE001
+            log.warning("portfolio_market_failed", error=str(e))
+            market = {}
+        out: list[tuple[Any, int]] = []
+        for a, raw in held.items():
+            m = market.get(a) or {}
+            if a in by_addr:
+                t = by_addr[a]
+                if t.price_usd is None and m.get("price_usd") is not None:
+                    t = SimpleNamespace(id=t.id, address=a, symbol=t.symbol, name=t.name, decimals=t.decimals,
+                                        price_usd=m["price_usd"], price_change_24h=m.get("price_change_24h"),
+                                        liquidity_usd=m.get("liquidity_usd"))
+            else:
+                meta = metas.get(a) or {}
+                t = SimpleNamespace(id=None, address=a, symbol=meta.get("symbol") or m.get("symbol"),
+                                    name=meta.get("name") or m.get("name"), decimals=meta.get("decimals"),
+                                    price_usd=m.get("price_usd") if meta.get("decimals") is not None else None,
+                                    price_change_24h=m.get("price_change_24h"), liquidity_usd=m.get("liquidity_usd"))
+            out.append((t, raw))
+        return out
+
+    async def _metas(self, addrs: list[str]) -> dict[str, dict]:
+        if not addrs:
+            return {}
+        out: dict[str, dict] = {}
+        try:
+            cached = await self.redis.mget([f"tokmeta:{a}" for a in addrs])
+            missing = []
+            for a, c in zip(addrs, cached):
+                if c is None:
+                    missing.append(a)
+                else:
+                    out[a] = json.loads(c)
+            if missing:
+                for a, meta in (await asyncio.wait_for(self.rpc.erc20_metas(missing), META_TIMEOUT_S)).items():
+                    out[a] = meta
+                    if meta.get("decimals") is not None:  # a failed lookup is retried next time, not cached
+                        await self.redis.set(f"tokmeta:{a}", json.dumps(meta), ex=7 * 86400)
+        except Exception as e:  # noqa: BLE001 — the rows still show, with "?" and no price
+            log.warning("portfolio_meta_failed", error=str(e))
+        return out
 
     @staticmethod
     def _holding(token, symbol, name, amount, price, chg, avg) -> Holding:

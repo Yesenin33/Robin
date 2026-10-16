@@ -47,3 +47,6 @@ class SafetyOut(BaseModel):
 class ScanQueued(BaseModel):
     address: str
     queued: bool = True
+    # queued = waiting for a worker, running = a worker is scanning it now
+    state: Literal["queued", "running"] = "queued"
+    retry_after_s: int = 3

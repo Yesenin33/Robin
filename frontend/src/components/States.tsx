@@ -10,12 +10,27 @@ export function Skeleton({ rows = 4 }: { rows?: number }) {
   )
 }
 
+/** Progress that says what is happening, how long it has been, and always offers a way out. */
+export function ProgressState({ title, detail, elapsedS, onCancel }: {
+  title: string; detail: string; elapsedS: number; onCancel: () => void
+}) {
+  return (
+    <div className="center-state" role="status" aria-live="polite">
+      <div className="spinner" />
+      <div className="t-title">{title}</div>
+      <div className="t-body" style={{ color: 'var(--muted)' }}>{detail}</div>
+      <div className="t-caption num">{elapsedS}s so far · most checks take under a minute</div>
+      <button className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={onCancel}>Stop waiting</button>
+    </div>
+  )
+}
+
 export function ErrorState({ body, onRetry }: { body: string; onRetry: () => void }) {
   return (
     <div className="center-state">
       <div className="state-icon" style={{ background: 'var(--red-soft)' }}>⚠️</div>
       <div style={{ fontWeight: 800, fontSize: 20 }}>Couldn't load this</div>
-      <div style={{ color: 'var(--muted)', fontSize: 15, lineHeight: 1.5 }}>{body} Your money is safe.</div>
+      <div className="t-body" style={{ color: 'var(--muted)' }}>{body} Your money is safe.</div>
       <button className="btn btn-white btn-sm" style={{ marginTop: 8 }} onClick={onRetry}>Try again</button>
     </div>
   )

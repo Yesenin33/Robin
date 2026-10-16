@@ -162,3 +162,12 @@ production container, in any order (pytest-randomly shuffles every run; `-p no:r
 4. Put Caddy/nginx in front for TLS, e.g. Caddyfile: `api.chainfolio.app { reverse_proxy 127.0.0.1:8000 }`.
 5. Update: `git pull && docker compose up -d --build` (migrations run automatically via `migrate`).
 6. Logs are JSON on stdout: `docker compose logs -f api worker`.
+
+## Swap (in-app, non-custodial)
+
+`POST /swap/quote` quotes on-chain (v3 QuoterV2 + v4 Quoter via `eth_call`) and returns the ordered transactions the
+user's own wallet must send (approvals only when missing, then the Universal Router swap). The server never signs.
+It is **off** until you set `SWAP_ENABLED=true` and the addresses in `.env.example`, and run
+`python -m app.tools.verify_swap` (checks that each address has code on the chain). The calldata builder is unit-tested
+by decoding what it produces, but it has **not** been executed against the real router: do one small swap in a real
+wallet before telling anyone it works. A Uniswap Trading API key path is not implemented.

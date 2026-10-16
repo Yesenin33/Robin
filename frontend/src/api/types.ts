@@ -17,7 +17,7 @@ export interface Holding {
   change_24h_pct: number | null
   pnl_pct: number | null
   verdict: Verdict | null
-  unrealizable?: boolean  // worth more than its pool can pay out: it counts towards nothing
+  liquidity_usd?: number | null  // depth of its pool; null = no market data
 }
 export interface Portfolio {
   address: string
@@ -25,7 +25,7 @@ export interface Portfolio {
   change_24h_usd: number
   change_24h_pct: number
   holdings: Holding[]
-  unrealizable_usd?: number  // paper value deliberately kept out of total_usd
+  excluded_count?: number  // holdings worth more on paper than their pool can pay out: not listed, not counted
   updated_at: string
 }
 
@@ -46,7 +46,7 @@ export interface Safety {
   holders_stale_at?: string | null  // holder data is the last good snapshot (explorer was busy)
   stale?: boolean  // a requested fresh scan failed; this is the previous result
 }
-export interface ScanQueued { address: string; queued: true }
+export interface ScanQueued { address: string; queued: true; state?: 'queued' | 'running'; retry_after_s?: number }
 
 export type RiskTag = 'low' | 'medium' | 'high'
 
@@ -87,3 +87,25 @@ export interface AlertItem {
 }
 export interface Alerts { unread: number; items: AlertItem[] }
 export interface Channels { push: boolean; telegram: boolean; telegram_alerts?: boolean; telegram_bot: string | null }
+
+export interface SwapConfig { enabled: boolean; chain_id: number; default_slippage_bps: number; max_slippage_bps: number }
+export interface SwapTx { to: string; data: string; value: string }
+export interface SwapStep { kind: 'approve_token' | 'approve_router' | 'swap'; label: string; tx: SwapTx }
+export interface SwapQuote {
+  source: string
+  route: 'v3' | 'v4'
+  side: 'buy' | 'sell'
+  token: string
+  pay_with: 'ETH' | 'USDG'
+  amount_in_raw: string
+  amount_out_raw: string
+  min_out_raw: string
+  decimals_in: number
+  decimals_out: number
+  slippage_bps: number
+  fee_bps: number
+  price_impact_pct: number | null  // null = we have no price to compare against
+  deadline: number
+  steps: SwapStep[]
+  chain_id: number
+}

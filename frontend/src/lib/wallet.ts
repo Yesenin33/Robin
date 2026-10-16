@@ -105,3 +105,25 @@ export async function disconnectWallet(): Promise<void> {
   if (!kit) return
   try { await (await kit).modal.disconnect() } catch { /* nothing connected */ }
 }
+
+/**
+ * The EIP-1193 provider that sends a user's swap. Never a key of ours: the wallet shows its own confirm dialog.
+ * Prefers the AppKit/WalletConnect session when one is open, then an injected wallet (Phantom, MetaMask…),
+ * and only opens the connect modal when neither exists. Returns the account it will send from.
+ */
+export async function tradeProvider(): Promise<{ provider: Eip1193; account: string } | null> {
+  let provider: Eip1193 | undefined
+  if (kit) {
+    try {
+      const { modal } = await kit
+      if (modal.getAddress()) provider = modal.getWalletProvider() as Eip1193 | undefined
+    } catch { /* fall through */ }
+  }
+  if (!provider && hasInjectedWallet() && !insideTelegram()) provider = window.ethereum
+  if (!provider && walletConnectEnabled) provider = await connectWithModal()
+  if (!provider) return null
+  const accounts: string[] = await provider.request({ method: 'eth_requestAccounts' })
+  return accounts?.[0] ? { provider, account: accounts[0] } : null
+}
+
+export const CHAIN_HEX_ID = '0x' + CHAIN_ID.toString(16)

@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import alerts, auth, copy, health, portfolio, safety, telegram
+from app.api import alerts, auth, copy, health, portfolio, safety, swap, telegram
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 
@@ -49,6 +49,7 @@ async def request_context(request: Request, call_next):
 app.include_router(auth.router)
 app.include_router(portfolio.router)
 app.include_router(safety.router)
+app.include_router(swap.router)
 app.include_router(copy.router)
 app.include_router(alerts.router)
 app.include_router(health.router)

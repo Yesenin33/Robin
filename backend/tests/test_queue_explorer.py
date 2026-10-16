@@ -94,20 +94,29 @@ async def test_drain_runs_scans_concurrently_and_bounded(appdb, redis, monkeypat
     assert await scan_job.drain_queue(redis) == 2  # bounded per tick
 
 
+async def landed(client, redis, ca=CA):
+    """GET answers 202 and queues the scan; run the priority worker, then read the result."""
+    r = await client.get(f"/safety/{ca}")
+    if r.status_code == 202:
+        await scan_job.drain_priority(redis)
+        r = await client.get(f"/safety/{ca}")
+    return r
+
+
 async def test_refresh_invalidates_cache_and_db_shortcut(client, appdb, redis, engine, signed_in):
-    first = (await client.get(f"/safety/{CA}")).json()
+    first = (await landed(client, redis)).json()
     assert first["verdict"] == "CLEAN"
     engine["eng"] = FakeEngine(report(honeypot=True))  # the world changed
     assert (await client.get(f"/safety/{CA}")).json()["verdict"] == "CLEAN"  # cache/DB shortcut still answer
     assert (await client.post(f"/safety/{CA}/refresh")).status_code == 202
     assert not await redis.exists(f"safety:{CA}")
-    assert (await client.get(f"/safety/{CA}")).json()["verdict"] == "DANGER"  # new scan, not the previous row
+    assert (await landed(client, redis)).json()["verdict"] == "DANGER"  # new scan, not the previous row
 
 
 async def test_failed_refresh_serves_previous_result_marked_stale(client, appdb, redis, engine):
     from app.services.intelligence import ScanUnavailable
 
-    await client.get(f"/safety/{CA}")
+    await landed(client, redis)
 
     class Down(FakeEngine):
         def scan(self, address):
@@ -115,8 +124,10 @@ async def test_failed_refresh_serves_previous_result_marked_stale(client, appdb,
 
     engine["eng"] = Down(report())
     await client.post(f"/safety/{CA}/refresh")
-    body = (await client.get(f"/safety/{CA}")).json()
-    assert body["verdict"] == "CLEAN" and body["stale"] is True
+    await scan_job.drain_priority(redis)  # the refresh fails in the worker...
+    r = await client.get(f"/safety/{CA}")
+    body = r.json()  # ...and the previous result is still what the user sees
+    assert r.status_code == 200 and body["verdict"] == "CLEAN"
 
 
 # ---------- TASK 4: explorer ----------
@@ -307,3 +318,34 @@ async def test_collector_watches_top_suggested_wallets_without_any_follower(appd
     monkeypatch.setattr(copy_job.pricing, "enrich_and_value", noop)
     await copy_job.collect(redis, rpc=R())
     assert seen["wallets"] == ["0x" + "aa" * 20]
+
+
+# ---------- a pasted contract never holds the request ----------
+
+async def test_unindexed_contract_returns_202_at_once_and_goes_to_the_priority_queue(client, appdb, redis, engine):
+    for a in OTHERS:
+        await scan_job.enqueue_scan(redis, a)  # bulk work already waiting
+    calls = []
+    orig = engine["eng"].scan
+    engine["eng"].scan = lambda a: (calls.append(a), orig(a))[1]
+    r = await client.get(f"/safety/{CA}")
+    assert r.status_code == 202 and r.json()["state"] == "queued" and calls == []  # no scan ran in the request
+    assert await redis.lrange(scan_job.PRIO_QUEUE, 0, -1) == [CA]
+    again = await client.get(f"/safety/{CA}")  # polling does not queue it twice
+    assert again.status_code == 202 and await redis.llen(scan_job.PRIO_QUEUE) == 1
+    await scan_job.drain_priority(redis)
+    done = await client.get(f"/safety/{CA}")
+    assert done.status_code == 200 and done.json()["verdict"] == "CLEAN" and calls == [CA]
+
+
+async def test_failed_queued_scan_is_reported_not_polled_forever(client, appdb, redis, engine):
+    from app.services.intelligence import ScanUnavailable
+
+    class Down(FakeEngine):
+        def scan(self, address):
+            raise ScanUnavailable("rpc down")
+
+    engine["eng"] = Down(report())
+    assert (await client.get(f"/safety/{CA}")).status_code == 202
+    await scan_job.drain_priority(redis)
+    assert (await client.get(f"/safety/{CA}")).status_code == 502

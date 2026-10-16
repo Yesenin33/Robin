@@ -39,3 +39,18 @@ listening on `127.0.0.1:8080`. Point Caddy/nginx with TLS at it, e.g.
 `SIWE_DOMAIN=chainfolio.app`.
 
 PWA: `public/manifest.webmanifest` + `public/sw.js` (app-shell cache, API never cached, Web Push handler).
+
+## Design system and source of truth
+
+`src/styles.css` is the source of truth for the look (tokens at the top: surface levels, hairline, radius scale
+8/12/16/24/99, elevation, type scale `.t-display/.t-title/.t-body/.t-caption`, 180 ms ease-out motion, focus ring,
+`prefers-reduced-motion`). `../Chainfolio.dc.html` is the original mock and is NOT kept in sync any more.
+Every confirmation uses `components/Sheet.tsx` (the swap sheet included).
+
+## In-app swap
+
+`Buy`/`Sell` on the Safety screen opens `components/SwapSheet.tsx`: amount -> live quote from `POST /swap/quote`
+-> the verdict in the same sheet (DANGER/UNKNOWN need an explicit tick) -> one-time approvals -> `eth_sendTransaction`
+on the connected provider -> receipt. Keys never reach the browser; the server only quotes and builds calldata.
+Off until the backend reports `GET /swap/config` -> `enabled: true`; `VITE_SWAP_URL` stays as the external fallback.
+`npm test` runs the pure helpers (`src/lib/lib.test.ts`, node:test).

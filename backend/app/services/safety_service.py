@@ -30,6 +30,10 @@ class ScanInProgress(Exception):
     pass
 
 
+class ScanNeeded(Exception):
+    """Nothing servable is stored and the caller declined to run the scan inside its own request."""
+
+
 def is_incomplete(report: ScanReport, holders_stale_at: datetime | None) -> bool:
     """A scan that produced a verdict but lacks what the Safety screen would show as dashes (holders, token
     identity) because a source failed. Worth a retry; a token that simply has no pool is not incomplete."""
@@ -116,7 +120,9 @@ class SafetyService:
     def cache_key(ca: str) -> str:
         return f"safety:{ca}"
 
-    async def get(self, ca: str, force: bool = False) -> SafetyOut:
+    async def get(self, ca: str, force: bool = False, inline: bool = True) -> SafetyOut:
+        """Cached / recent result, else scan. `inline=False` (the HTTP API) never runs the scan in the caller's
+        request: it raises ScanNeeded and the API queues the scan at priority instead."""
         ca = norm(ca)
         # POST /safety/{ca}/refresh sets this marker: neither the Redis entry nor the "recent DB row"
         # shortcut may answer until the new scan has landed (the scan clears the marker).
@@ -127,6 +133,14 @@ class SafetyService:
             if fresh := await self._fresh_from_db(ca):
                 await self._cache(fresh)
                 return fresh
+        if not inline:
+            if refresh_requested and await self.redis.exists(f"scan:cool:{ca}") \
+                    and (previous := await self._fresh_from_db(ca, max_age=False)):
+                previous.stale = True  # the refresh failed in the worker: keep showing the last known result
+                return previous
+            if await self.redis.exists(f"lock:scan:{ca}"):
+                raise ScanInProgress(ca)
+            raise ScanNeeded(ca)
         try:
             return await self.scan(ca, priority=refresh_requested)
         except (ScanUnavailable, TimeoutError):

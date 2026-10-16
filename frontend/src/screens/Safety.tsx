@@ -1,13 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { api, isQueued } from '../api/client'
 import type { Metric, Safety as SafetyT, Verdict } from '../api/types'
-import { EmptyState, ErrorState, Skeleton } from '../components/States'
+import { EmptyState, ErrorState, ProgressState } from '../components/States'
+import { SwapSheet } from '../components/SwapSheet'
 import { Avatar, toast } from '../components/ui'
 import { ago, isAddress, shortAddr } from '../lib/format'
+import { loadRecent, saveRecent } from '../lib/recent'
 import { swapUrl } from '../lib/swap'
-import { useAsync } from '../lib/useAsync'
 
 const VERDICT: Record<Verdict, { vc: string; vt: string; soft: string; icon: string }> = {
   CLEAN: { vc: 'var(--green)', vt: 'var(--green-ink)', soft: 'var(--green-soft)', icon: '✓' },
@@ -17,88 +18,129 @@ const VERDICT: Record<Verdict, { vc: string; vt: string; soft: string; icon: str
   UNKNOWN: { vc: 'var(--muted-2)', vt: 'var(--surface)', soft: 'var(--card)', icon: '?' },
 }
 const TONE = { ok: '#fff', warn: 'var(--amber)', bad: 'var(--red)', unknown: 'var(--muted-2)' }
-const RECENT_KEY = 'cf_recent'
 
-type Recent = { ca: string; sym: string }
-const loadRecent = (): Recent[] => { try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') } catch { return [] } }
-const saveRecent = (r: Recent) => {
-  const list = [r, ...loadRecent().filter(x => x.ca !== r.ca)].slice(0, 3)
-  try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)) } catch { /* ignore */ }
-}
+const sleep = (ms: number, signal: AbortSignal) => new Promise<void>(res => {
+  const t = setTimeout(res, ms)
+  signal.addEventListener('abort', () => { clearTimeout(t); res() }, { once: true })
+})
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+export type Waiting = { state: 'queued' | 'running'; elapsedS: number }
+const GIVE_UP_S = 180
 
-/** GET /safety; a 202 means a scan is running — poll until it lands. */
-async function fetchSafety(ca: string): Promise<SafetyT> {
-  for (let i = 0; i < 24; i++) {
-    const r = await api.safety(ca)
+/** GET /safety returns at once. A 202 means the scan is queued/running in the worker: poll until it lands. */
+async function fetchSafety(ca: string, signal: AbortSignal, onWait: (w: Waiting) => void): Promise<SafetyT | null> {
+  const t0 = Date.now()
+  for (;;) {
+    const r = await api.safety(ca, signal)
+    if (signal.aborted) return null
     if (!isQueued(r)) return r
-    await sleep(5000)
+    const elapsedS = Math.round((Date.now() - t0) / 1000)
+    if (elapsedS > GIVE_UP_S) throw new Error('scan timeout')
+    onWait({ state: r.state ?? 'queued', elapsedS })
+    await sleep((r.retry_after_s ?? 3) * 1000, signal)
+    if (signal.aborted) return null
   }
-  throw new Error('scan timeout')
 }
 
 export function Safety() {
   const { ca } = useParams()
   const nav = useNavigate()
   const recent = loadRecent()
+  const input = useRef<HTMLInputElement>(null)
+  const go = (a: string) => nav(`/app/safety/${a.trim().toLowerCase()}`)
 
   return (
     <div className="app-page">
-      <AddressBar onSubmit={a => nav(`/app/safety/${a}`)} />
+      <AddressBar onSubmit={go} inputRef={input} />
       {recent.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {recent.map(t => {
-            const on = t.ca === ca?.toLowerCase()
-            return (
-              <button key={t.ca} onClick={() => nav(`/app/safety/${t.ca}`)} style={{
-                padding: '8px 14px', borderRadius: 99, fontWeight: 700, fontSize: 13,
-                border: `1px solid ${on ? '#fff' : 'var(--line)'}`, background: on ? '#fff' : 'transparent', color: on ? 'var(--surface)' : 'var(--muted)',
-              }}>{t.sym}</button>
-            )
-          })}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="t-caption">Recently checked</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {recent.map(t => (
+              <button key={t.ca} className={`chip ${t.ca === ca?.toLowerCase() ? 'on' : ''}`} onClick={() => go(t.ca)}>
+                <b>{t.sym}</b><small className="num">{shortAddr(t.ca)}</small>
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {ca && isAddress(ca)
-        ? <SafetyView key={ca} ca={ca.toLowerCase()} />
+        ? <SafetyView key={ca} ca={ca.toLowerCase()} onLeave={() => nav('/app/safety')} />
         : <EmptyState emoji="🛡️" title="Nothing to check yet" body="Paste a token address and we'll tell you if it looks safe."
-            cta="Paste address" onCta={async () => {
-              const text = (await navigator.clipboard?.readText().catch(() => ''))?.trim() ?? ''
-              if (isAddress(text)) nav(`/app/safety/${text}`)
-              else toast('No token address in your clipboard')
-            }} />}
+            cta="Paste address" onCta={() => void pasteFromClipboard(go, input.current)} />}
     </div>
   )
 }
 
-function AddressBar({ onSubmit }: { onSubmit: (a: string) => void }) {
+/** Read the clipboard if the browser lets us. It often doesn't (iOS needs a gesture + permission, plain-http
+ *  pages and some in-app browsers have no Clipboard API) - then say so and put the cursor in the field. */
+export async function pasteFromClipboard(go: (a: string) => void, field: HTMLInputElement | null, read?: () => Promise<string>) {
+  const reader = read ?? (navigator.clipboard?.readText ? () => navigator.clipboard.readText() : undefined)
+  if (!reader) { toast("This browser won't let us read the clipboard. Long-press the field and choose Paste."); field?.focus(); return }
+  let text = ''
+  try { text = (await reader()).trim() } catch {
+    toast("The clipboard is blocked here. Long-press the field and choose Paste."); field?.focus(); return
+  }
+  if (isAddress(text)) { go(text); return }
+  if (field && text) { field.value = text; field.dispatchEvent(new Event('input', { bubbles: true })) }
+  toast(text ? "That doesn't look like a token address" : 'Your clipboard is empty')
+  field?.focus()
+}
+
+function AddressBar({ onSubmit, inputRef }: { onSubmit: (a: string) => void; inputRef: React.RefObject<HTMLInputElement> }) {
   const [v, setV] = useState('')
+  const submit = () => {
+    if (isAddress(v)) { onSubmit(v); setV('') } else toast(v.trim() ? "That address doesn't look right" : 'Paste or type a token address first')
+  }
   return (
-    <form onSubmit={e => { e.preventDefault(); if (isAddress(v)) { onSubmit(v.trim()); setV('') } else toast("That address doesn't look right") }}>
-      <input className="input" style={{ height: 48, fontSize: 14 }} placeholder="Paste token address (0x…)" value={v}
-        onChange={e => setV(e.target.value)} spellCheck={false} autoCapitalize="off" />
+    <form onSubmit={e => { e.preventDefault(); submit() }} style={{ display: 'flex', gap: 8 }}>
+      <input ref={inputRef} className="input" style={{ flex: 1, minWidth: 0 }} placeholder="Token address (0x…)" value={v}
+        onChange={e => setV(e.target.value)} spellCheck={false} autoCapitalize="off" autoCorrect="off" inputMode="text"
+        aria-label="Token address" />
+      {v.trim() === '' && (
+        <button type="button" className="btn btn-ghost" style={{ padding: '0 14px', fontSize: 14 }}
+          onClick={() => void pasteFromClipboard(onSubmit, inputRef.current)}>Paste</button>
+      )}
+      <button type="submit" className="btn btn-primary" style={{ padding: '0 18px', fontSize: 15 }}>Check</button>
     </form>
   )
 }
 
-function SafetyView({ ca }: { ca: string }) {
-  const { state, reload } = useAsync(async () => {
-    const s = await fetchSafety(ca)
-    saveRecent({ ca, sym: s.symbol ?? shortAddr(ca) })
-    return s
-  }, [ca])
+type View =
+  | { status: 'wait'; w: Waiting }
+  | { status: 'ready'; data: SafetyT }
+  | { status: 'error' }
 
-  if (state.status === 'loading') return <Skeleton rows={3} />
-  if (state.status === 'error') return <ErrorState body="We couldn't run the safety check." onRetry={() => void reload()} />
-  const s = state.data
+function SafetyView({ ca, onLeave }: { ca: string; onLeave: () => void }) {
+  const [view, setView] = useState<View>({ status: 'wait', w: { state: 'queued', elapsedS: 0 } })
+  const [run, setRun] = useState(0)
+  const [swap, setSwap] = useState<'buy' | 'sell' | null>(null)
+  const ctl = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    const c = new AbortController()
+    ctl.current = c
+    setView({ status: 'wait', w: { state: 'queued', elapsedS: 0 } })
+    fetchSafety(ca, c.signal, w => setView({ status: 'wait', w }))
+      .then(d => { if (d) { saveRecent({ ca, sym: d.symbol ?? shortAddr(ca), ts: Date.now() }); setView({ status: 'ready', data: d }) } })
+      .catch(() => { if (!c.signal.aborted) setView({ status: 'error' }) })
+    return () => c.abort()
+  }, [ca, run])
+
+  if (view.status === 'wait') {
+    const w = view.w
+    return <ProgressState title="Checking this token"
+      detail={w.state === 'running' ? 'Reading the contract, the holders and the liquidity pool…' : 'Waiting for a free checker…'}
+      elapsedS={w.elapsedS} onCancel={() => { ctl.current?.abort(); onLeave() }} />
+  }
+  if (view.status === 'error') {
+    return <ErrorState body="We couldn't run the safety check." onRetry={() => setRun(n => n + 1)} />
+  }
+  const s = view.data
   const v = VERDICT[s.verdict]
   const extra = s.risks.filter(r => !s.summary.includes(r)) // summary already quotes the top risks
 
-  const trade = (side: 'buy' | 'sell') => {
-    const url = swapUrl(ca, side)
-    if (!url) { toast('Trading is coming soon'); return }
-    window.open(url, '_blank', 'noopener,noreferrer')
-  }
+  const trade = (side: 'buy' | 'sell') => setSwap(side)
 
   return (
     <>
@@ -143,6 +185,7 @@ function SafetyView({ ca }: { ca: string }) {
       </div>
       {s.verdict === 'DANGER' && <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--red-text)' }}>Buying this one is not recommended.</div>}
       {s.verdict === 'UNKNOWN' && <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--muted-2)' }}>We couldn't check this one — don't treat it as safe.</div>}
+      {swap && <SwapSheet side={swap} safety={s} onClose={() => setSwap(null)} fallbackUrl={swapUrl(ca, swap)} />}
     </>
   )
 }

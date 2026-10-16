@@ -21,6 +21,18 @@ class Settings(BaseSettings):
     rpc_url: str = "https://rpc.mainnet.chain.robinhood.com"
     native_symbol: str = "ETH"
 
+    # In-app swap. Off until the owner has verified the addresses below against the chain
+    # (`python -m app.tools.verify_swap`). We never sign: the server only quotes and builds calldata.
+    swap_enabled: bool = False
+    swap_universal_router: str = ""  # UniversalRouter 2.x on this chain — no default on purpose
+    swap_permit2: str = "0x000000000022D473030F116dDEE9F6B43aC78BA3"  # canonical CREATE2 address, verify code exists
+    swap_quoter_v2: str = ""  # Uniswap v3 QuoterV2
+    swap_v4_quoter: str = ""  # Uniswap v4 Quoter
+    swap_weth: str = "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73"
+    swap_usdg: str = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+    swap_default_slippage_bps: int = 100
+    swap_max_slippage_bps: int = 1000  # 10 %: above this a swap is a donation to a sandwich bot
+
     chain_name: str = "robinhood"
     # Blockscout-compatible explorer API; "" = holders come from Transfer-log replay (slow, needs a node)
     explorer_api_url: str = "https://robinhoodchain.blockscout.com"

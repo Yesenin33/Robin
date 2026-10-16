@@ -1,4 +1,4 @@
-import type { Alerts, Channels, CopyItem, Portfolio, Safety, ScanQueued, Suggested, TokenOut, User } from './types'
+import type { Alerts, Channels, CopyItem, Portfolio, Safety, ScanQueued, Suggested, SwapConfig, SwapQuote, TokenOut, User } from './types'
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api'
 const TOKEN_KEY = 'cf_token'
@@ -45,8 +45,14 @@ export const api = {
 
   portfolio: (address: string) => get<Portfolio>(`/portfolio/${address}`),
 
-  /** 200 -> result, 202 -> scan running (caller polls) */
-  safety: async (ca: string): Promise<Safety | ScanQueued> => (await req<Safety | ScanQueued>(`/safety/${ca}`)).data,
+  /** 200 -> result, 202 -> scan queued/running (caller polls) */
+  safety: async (ca: string, signal?: AbortSignal): Promise<Safety | ScanQueued> =>
+    (await req<Safety | ScanQueued>(`/safety/${ca}`, { signal })).data,
+  safetyRefresh: (ca: string) => post<ScanQueued>(`/safety/${ca}/refresh`),
+
+  swapConfig: () => get<SwapConfig>('/swap/config'),
+  swapQuote: (b: { token: string; side: 'buy' | 'sell'; amount: string; slippage_bps?: number; wallet: string; pay_with: 'ETH' | 'USDG' }) =>
+    post<SwapQuote>('/swap/quote', b),
 
   copyFeed: () => get<CopyItem[]>('/copy/feed'),
   copySuggested: () => get<Suggested[]>('/copy/suggested'),
