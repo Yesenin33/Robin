@@ -240,6 +240,27 @@ def test_getlogs_min_interval_spaces_calls(monkeypatch):
     assert stamps[1] - stamps[0] >= 0.1 and stamps[2] - stamps[1] >= 0.1
 
 
+def test_chain_config_offers_every_configured_endpoint(monkeypatch):
+    """Regression: the engine used to read only RPC_URL, so with a capped keyed endpoint as RPC_URL every
+    scan lost its Transfer logs and reported UNKNOWN, even though capable fallbacks were configured."""
+    monkeypatch.setattr(icfg, "_overrides", {})
+    monkeypatch.setenv("RPC_URL", ALCHEMY)
+    monkeypatch.setenv("RPC_FALLBACK_URLS", f"{OFFICIAL},{PUBLIC}")
+    cfg = icfg.get_chain("robinhood")
+    assert cfg.rpc_url == f"{ALCHEMY},{OFFICIAL},{PUBLIC}"
+    r = irpc.Rpc(cfg.rpc_url, poster=Net({"robinhood-mainnet.g.alchemy.com": [(200, ok([]))],
+                                          "rpc.mainnet.chain.robinhood.com": [(200, ok([]))]}))
+    get_logs(r, 9_999)  # a wide range must skip the capped keyed endpoint and reach the official node
+    assert r._poster.hits == [("rpc.mainnet.chain.robinhood.com", "eth_getLogs")]
+
+
+def test_chain_config_dedupes_and_keeps_order(monkeypatch):
+    monkeypatch.setattr(icfg, "_overrides", {})
+    monkeypatch.setenv("RPC_URL", OFFICIAL)
+    monkeypatch.setenv("RPC_FALLBACK_URLS", f"{OFFICIAL} , {PUBLIC} ,")
+    assert icfg.get_chain("robinhood").rpc_url == f"{OFFICIAL},{PUBLIC}"
+
+
 # ---------- async client (portfolio / position snapshots) ----------
 
 def mock_client(handler):

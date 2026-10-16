@@ -84,14 +84,31 @@ def _env(key: str, default: str) -> str:
     return os.environ.get(key, default)
 
 
+def rpc_urls() -> str:
+    """`RPC_URL` plus `RPC_FALLBACK_URLS` as one comma-separated list (first = preferred for plain calls).
+
+    The engine's endpoint pool picks per request: it drops an endpoint whose eth_getLogs range cap is
+    smaller than the span asked for. That is exactly the split this chain needs — a keyed Alchemy first
+    (fast eth_call/balances, but a 10-block log cap) with the official node behind it for wide getLogs.
+    Reading only `RPC_URL` here was a real defect: with the keyed endpoint as RPC_URL, every scan that ran
+    inside the API process lost its Transfer logs and reported UNKNOWN.
+    """
+    urls = []
+    for chunk in (_env("RPC_URL", "https://rpc.mainnet.chain.robinhood.com"), _env("RPC_FALLBACK_URLS", "")):
+        urls += [u.strip() for u in chunk.split(",") if u.strip()]
+    seen: set[str] = set()
+    ordered = [u for u in urls if not (u in seen or seen.add(u))]
+    return ",".join(ordered)
+
+
 def chains() -> dict[str, ChainConfig]:
     return {
         "robinhood": ChainConfig(
             name="robinhood",
             chain_id=int(_env("CHAIN_ID", "4663")),
-            # The official public node answers eth_getLogs; third-party mirrors cap the range or
+            # The official public node answers wide eth_getLogs; third-party mirrors cap the range or
             # demand an archive token. Keep the chunk under 10k so free plans accept it.
-            rpc_url=_env("RPC_URL", "https://rpc.mainnet.chain.robinhood.com"),
+            rpc_url=rpc_urls(),
             explorer_api=_env("EXPLORER_API_URL", "https://robinhoodchain.blockscout.com"),
             dexscreener_slug=_env("DEXSCREENER_CHAIN", "robinhood"),
             geckoterminal_network=_env("GECKOTERMINAL_NETWORK", "robinhood"),
