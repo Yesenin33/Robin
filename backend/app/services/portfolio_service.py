@@ -64,6 +64,7 @@ class PortfolioService:
         verdicts = await self._verdicts([t.id for t, _ in pairs])
 
         holdings: list[Holding] = []
+        unrealizable = 0.0
         if native_raw:
             amt = native_raw / 1e18
             px = await self.market.native_price_usd(self.s.native_symbol)
@@ -76,16 +77,26 @@ class PortfolioService:
             chg = float(t.price_change_24h) if t.price_change_24h is not None else None
             h = self._holding(t.address, t.symbol or "?", t.name, amt, px, chg, avg_costs.get(t.address))
             h.verdict = verdicts.get(t.id)
+            # Value you cannot take out is not value. A wallet holding 66 units of a token that calls
+            # itself "ETH" in a $2 055 pool was shown a $161 609 balance it could never sell — the pool
+            # itself caps what any holder can realize, and our own scan says a top-holder sell takes the
+            # price to -100%. Keep the row (honest) but count it as nothing.
+            liq = float(t.liquidity_usd) if t.liquidity_usd is not None else None
+            if liq is not None and h.value_usd > liq:
+                h.unrealizable = True
+                unrealizable += h.value_usd
             holdings.append(h)
 
         holdings.sort(key=lambda h: h.value_usd, reverse=True)
-        total = sum(h.value_usd for h in holdings)
-        change = sum(change_from_pct(h.value_usd, h.change_24h_pct) for h in holdings)
+        counted = [h for h in holdings if not h.unrealizable]
+        total = sum(h.value_usd for h in counted)
+        change = sum(change_from_pct(h.value_usd, h.change_24h_pct) for h in counted)
         prev = total - change
         return PortfolioOut(
             address=address, total_usd=round(total, 2), change_24h_usd=round(change, 2),
             change_24h_pct=round(change / prev * 100, 2) if prev > 0 else 0.0,
-            holdings=holdings, updated_at=datetime.now(timezone.utc),
+            holdings=holdings, unrealizable_usd=round(unrealizable, 2),
+            updated_at=datetime.now(timezone.utc),
         )
 
     @staticmethod

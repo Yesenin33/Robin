@@ -73,6 +73,12 @@ function PortfolioView({ address }: { address: string }) {
         </div>
       </div>
       <div className="label" style={{ marginTop: 6 }}>Your holdings</div>
+      {(p.unrealizable_usd ?? 0) > 0 && (
+        <div className="notice-error" style={{ background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--muted)', fontSize: 13, lineHeight: 1.45 }}>
+          We left {usd(p.unrealizable_usd ?? 0)} out of your balance. Those tokens are worth more on paper than
+          their pool can pay out — you couldn't sell them at that price.
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {p.holdings.map(h => <HoldingRow key={h.token} h={h} onOpen={() => h.token !== 'native' && nav(`/app/safety/${h.token}`)} />)}
       </div>
@@ -93,10 +99,15 @@ function HoldingRow({ h, onOpen }: { h: Holding; onOpen: () => void }) {
           {h.verdict === 'RISKY' && <span title="Risky" style={{ fontSize: 12, color: 'var(--amber)' }}>!</span>}
           {h.verdict === 'UNKNOWN' && <span title="We couldn't check this one" style={{ fontSize: 12, color: 'var(--muted-2)' }}>?</span>}
         </div>
-        <div style={{ color: 'var(--muted-2)', fontSize: 13, marginTop: 2 }}>{amount(h.amount)} {h.symbol}</div>
+        <div style={{ color: 'var(--muted-2)', fontSize: 13, marginTop: 2 }}>
+          {amount(h.amount)} {h.symbol}
+          {h.unrealizable && <span style={{ color: 'var(--amber)' }}> · can't be sold at this size</span>}
+        </div>
       </div>
       <div style={{ textAlign: 'right' }}>
-        <div className="num" style={{ fontWeight: 800, fontSize: 16 }}>{h.price_usd == null ? '—' : usd(h.value_usd)}</div>
+        <div className="num" style={{ fontWeight: 800, fontSize: 16, color: h.unrealizable ? 'var(--muted-2)' : undefined, textDecoration: h.unrealizable ? 'line-through' : undefined }}>
+          {h.price_usd == null ? '—' : usd(h.value_usd)}
+        </div>
         {pct != null && (
           <div className={neg ? 'down' : 'up'} style={{ fontWeight: 700, fontSize: 13, marginTop: 2 }}>{neg ? '▼ ' : '▲ '}{signedPct(pct)}</div>
         )}

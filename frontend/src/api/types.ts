@@ -17,6 +17,7 @@ export interface Holding {
   change_24h_pct: number | null
   pnl_pct: number | null
   verdict: Verdict | null
+  unrealizable?: boolean  // worth more than its pool can pay out: it counts towards nothing
 }
 export interface Portfolio {
   address: string
@@ -24,6 +25,7 @@ export interface Portfolio {
   change_24h_usd: number
   change_24h_pct: number
   holdings: Holding[]
+  unrealizable_usd?: number  // paper value deliberately kept out of total_usd
   updated_at: string
 }
 

@@ -80,9 +80,50 @@ async def test_portfolio_is_cached(svc, redis):
     assert await redis.exists(f"portfolio:{OWNER}")
 
 
+# How the given pool's liquidity compares to a holding: a token worth more than its own pool can pay out is
+# paper value, so the portfolio keeps the row but leaves it out of the total (Holding.unrealizable).
 async def test_invalid_address(svc):
     with pytest.raises(ValueError):
         await svc.get("0x123")
+
+
+async def test_unrealizable_holding_is_not_counted(db, redis):
+    """A 66-unit token calling itself ETH in a $2 055 pool was shown as a $161 609 balance."""
+    seen: list[str] = []
+    svc = PortfolioService(db, redis, indexed_rpc(seen), FakeMarket())
+
+    def rich_handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls = body if isinstance(body, list) else [body]
+        out = []
+        for c in calls:
+            if c["method"] == "eth_getBalance":
+                res = hex(0)
+            elif c["method"] == "alchemy_getTokenBalances":
+                res = {"tokenBalances": [{"contractAddress": HOOD, "tokenBalance": hex(66 * 10**18)}]}
+            else:
+                return httpx.Response(400)
+            out.append({"jsonrpc": "2.0", "id": c.get("id"), "result": res})
+        return httpx.Response(200, json=out if isinstance(body, list) else out[0])
+
+    db.add(Token(address=HOOD, symbol="ETH", name="Ethereum", decimals=18, price_usd=2448.63, liquidity_usd=2055.63))
+    await db.commit()
+    rich = PortfolioService(db, redis, RPCClient("http://rpc", httpx.AsyncClient(transport=httpx.MockTransport(rich_handler))), FakeMarket())
+
+    p = await rich.get(OWNER)
+    hood = next(h for h in p.holdings if h.token == HOOD)
+    assert hood.value_usd == pytest.approx(66 * 2448.63, abs=0.01)  # the row is honest about the paper value
+    assert hood.unrealizable is True
+    assert p.unrealizable_usd == pytest.approx(hood.value_usd, abs=0.01)
+    assert p.total_usd == 0  # and it does not inflate the balance
+
+    # a pool that CAN pay out is counted normally
+    tok = await db.get(Token, 1)
+    tok.liquidity_usd = 10_000_000
+    await db.commit()
+    p2 = await rich.get(OWNER, use_cache=False)
+    assert p2.total_usd == pytest.approx(66 * 2448.63, abs=0.01) and p2.unrealizable_usd == 0
+
 
 
 def indexed_rpc(seen: list[str]) -> RPCClient:
