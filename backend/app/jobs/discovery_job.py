@@ -20,6 +20,9 @@ from app.services.intelligence.rpc import ZERO
 
 log = get_logger(__name__)
 CURSOR = "idx:pools:cursor"
+# how long before we ask the art sources about a token again that had none (a fresh token gets its logo
+# minutes later; a spam airdrop never will, and this keeps us from hammering a rate-limited API)
+ART_MISS_TTL_S = 6 * 3600
 MAX_RANGE_PER_RUN = 200_000  # bound one run; the cursor carries on next time
 
 
@@ -98,21 +101,56 @@ async def backfill_pool_keys(limit: int = 100, rpc=None) -> int:
 
 
 async def backfill_images(batch: int = 300, redis=None) -> int:
-    """Token art for rows that have none: DexScreener's batched endpoint (30 addresses per request), cached.
-    A token DexScreener has no art for is marked "" and retried only by its next scan."""
+    """Token art for rows that have none.
+
+    Two sources, in the order that matches reality on this chain: GeckoTerminal carries art for ~99 % of
+    the catalogue while DexScreener had an image for **0 of the owner's 47 holdings** and 0 of the 12
+    newest tokens (both measured). GeckoTerminal first, DexScreener for whatever is left.
+
+    A token neither source has art for is NOT written back as "looked, nothing there": a token launched a
+    minute ago genuinely has no logo yet, and an empty string in the column would keep it out of this
+    query forever. The miss is recorded in Redis with a TTL instead, so it is retried — just not every
+    five minutes.
+    """
     from app.core.redis import get_redis
     from app.services.market import MarketClient
 
-    market = MarketClient(redis or get_redis())
+    r = redis or get_redis()
+    market = MarketClient(r)
     found = 0
     async with SessionLocal() as db:
         rows = (await db.execute(select(Token).where(Token.image_url.is_(None)).limit(batch))).scalars().all()
-        info = await market.tokens_market([t.address for t in rows]) if rows else {}
-        for t in rows:
-            url = (info.get(t.address) or {}).get("image_url")
-            if url:
+        if not rows:
+            return 0
+        addrs = [t.address.lower() for t in rows]
+        # skip the ones we asked about moments ago; the rest are fair game
+        misses = await r.mget([f"artmiss:{a}" for a in addrs])
+        todo = [t for t, m in zip(rows, misses) if m is None]
+        by_addr = {t.address.lower(): t for t in todo}
+        art: dict[str, str] = {}
+        if todo:
+            try:
+                art = await market.gecko_images([t.address for t in todo])
+            except Exception as e:  # noqa: BLE001
+                log.warning("images_gecko_failed", error=str(e))
+            need = [t for t in todo if t.address.lower() not in art]
+            if need:
+                try:
+                    info = await market.tokens_market([t.address for t in need])
+                    art.update({a: (info.get(a) or {}).get("image_url") for a in info
+                                if (info.get(a) or {}).get("image_url")})
+                except Exception as e:  # noqa: BLE001
+                    log.warning("images_dex_failed", error=str(e))
+        for a, url in art.items():
+            if (t := by_addr.get(a)) is not None and url:
+                t.image_url = url
                 found += 1
-            t.image_url = url or ""  # "" = looked, nothing there
         await db.commit()
-    log.info("images_backfilled", tried=len(rows), found=found)
+        missing = [t.address.lower() for t in todo if t.address.lower() not in art]
+        if missing:
+            pipe = r.pipeline()
+            for a in missing:
+                pipe.set(f"artmiss:{a}", "1", ex=ART_MISS_TTL_S)
+            await pipe.execute()
+    log.info("images_backfilled", tried=len(rows), asked=len(todo), found=found, miss=len(rows) - found)
     return found
