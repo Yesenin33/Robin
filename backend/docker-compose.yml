@@ -1,0 +1,83 @@
+x-app: &app
+  build: .
+  env_file: .env
+  restart: unless-stopped
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chainfolio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chainfolio}
+      POSTGRES_DB: chainfolio
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chainfolio"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+
+  # Real Chromium for the Cloudflare-challenged explorer: engine -> POST http://browser:8765/internal/fetch.
+  # Internal only (no published port), persistent profile keeps the Cloudflare clearance across restarts.
+  browser:
+    build: ../browser
+    restart: unless-stopped
+    shm_size: 256mb  # Chromium needs more than Docker's 64 MB /dev/shm
+    environment:
+      ALLOWED_HOSTS: ${EXPLORER_HOST:-robinhoodchain.blockscout.com}  # the ONLY host it will fetch
+      FETCH_TOKEN: ${EXPLORER_BROWSER_TOKEN:-}
+    volumes: [browser-profile:/data]
+    mem_limit: 768m
+
+  api:
+    <<: *app
+    ports: ["127.0.0.1:8000:8000"]
+    environment:
+      # "-" (not ":-"): an explicitly EMPTY EXPLORER_BROWSER_URL in .env disables the sidecar
+      EXPLORER_BROWSER_URL: ${EXPLORER_BROWSER_URL-http://browser:8765}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      browser: { condition: service_started }
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.jobs.worker"]
+    environment:
+      EXPLORER_BROWSER_URL: ${EXPLORER_BROWSER_URL-http://browser:8765}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      browser: { condition: service_started }
+
+  web:
+    build:
+      context: ../frontend
+      args:  # Buy/Sell deep link, see frontend/.env.example
+        VITE_SWAP_URL: ${VITE_SWAP_URL:-}
+        VITE_SWAP_NATIVE: ${VITE_SWAP_NATIVE:-ETH}
+        VITE_WC_PROJECT_ID: ${VITE_WC_PROJECT_ID:-}
+    restart: unless-stopped
+    ports: ["127.0.0.1:8080:80"]
+    depends_on: [api]
+
+volumes:
+  pgdata:
+  redisdata:
+  browser-profile:

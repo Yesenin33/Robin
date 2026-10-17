@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#F7F5EF;font-family:'Albert Sans',system-ui,sans-serif;color:#110E08}a{color:#110E08}*{box-sizing:border-box}@keyframes cfshim{from{background-position:200% 0}to{background-position:-200% 0}}</style>
+</helmet>
+<div style="min-height:100vh;background:radial-gradient(ellipse 90% 30% at 50% -6%,rgba(204,255,0,.2),rgba(204,255,0,0) 100%),#F7F5EF;padding-left:{{ padL }};padding-bottom:{{ padB }}">
+  <dc-import name="AppNav" active="portfolio" hint-size="0px,0px"></dc-import>
+  <div style="max-width:1080px;margin:0 auto;padding:{{ pad }};display:flex;flex-direction:column;gap:24px">
+
+    <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div style="width:120px;height:14px;border-radius:7px;background:linear-gradient(90deg,#E9E5D9,#F3F0E7,#E9E5D9);background-size:200% 100%;animation:cfshim 1.4s ease-in-out infinite"></div>
+        <div style="width:280px;height:60px;border-radius:12px;background:linear-gradient(90deg,#E9E5D9,#F3F0E7,#E9E5D9);background-size:200% 100%;animation:cfshim 1.4s ease-in-out infinite"></div>
+        <sc-for list="{{ skel }}" as="k" hint-placeholder-count="5"><div style="height:76px;border-radius:18px;background:linear-gradient(90deg,#EEEADF,#F7F5EF,#EEEADF);background-size:200% 100%;animation:cfshim 1.4s ease-in-out infinite"></div></sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;padding:96px 16px">
+        <div style="width:56px;height:56px;border-radius:50%;background:#FCE6E2;color:#C8281E;font-family:'Newsreader',serif;font-size:30px;display:flex;align-items:center;justify-content:center">!</div>
+        <div style="font-family:'Newsreader',serif;font-size:32px;letter-spacing:-.02em">Couldn't load this</div>
+        <div style="color:#4A463D;font-size:16px;line-height:1.5;max-width:340px">We couldn't reach your balance. Your money is safe.</div>
+        <a href="?state=ready" style="margin-top:8px;height:52px;padding:0 32px;border-radius:99px;background:#110E08;color:#F7F5EF;font-weight:700;font-size:16px;display:inline-flex;align-items:center;text-decoration:none">Try again</a>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;padding:96px 16px">
+        <div style="width:56px;height:56px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px rgba(17,14,8,.1);display:flex;align-items:center;justify-content:center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#110E08" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12A9 9 0 1 1 12 3v9z"></path></svg></div>
+        <div style="font-family:'Newsreader',serif;font-size:32px;letter-spacing:-.02em">No holdings yet</div>
+        <div style="color:#4A463D;font-size:16px;line-height:1.5;max-width:360px">Send tokens to your address to get started. We'll check they're safe first.</div>
+        <button onClick="{{ copyAddr }}" style="margin-top:8px;height:52px;padding:0 32px;border-radius:99px;border:0;background:#110E08;color:#F7F5EF;font-weight:700;font-size:16px;cursor:pointer;font-family:inherit">{{ copyLabel }}</button>
+        <div style="font-size:14px;color:#5E594E;font-variant-numeric:tabular-nums">0x26a1a7c87f72fe37ca57ab92f24353ff12b1110a</div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isReady }}" hint-placeholder-val="{{ false }}">
+      <div style="display:grid;grid-template-columns:{{ cols }};gap:32px;align-items:start">
+        <div style="display:flex;flex-direction:column;gap:24px;min-width:0">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center"><div style="font-size:15px;font-weight:600;color:#5E594E">Total balance</div><a href="?state=loading" style="height:36px;display:flex;align-items:center;font-size:14px;font-weight:600;color:#5E594E;text-decoration:none">Updated just now · Refresh</a></div>
+            <div style="font-size:{{ bal }};font-weight:600;letter-spacing:-.04em;line-height:1;font-variant-numeric:tabular-nums">$14,480.52</div>
+            <div style="display:flex;gap:10px;align-items:center;font-size:16px;font-weight:600;color:#067A0A"><span>+$312.40</span><span style="background:#E4F6DD;border-radius:99px;padding:3px 10px;font-size:14px">+2.2%</span><span style="color:#5E594E;font-weight:500;font-size:14px">today</span></div>
+          </div>
+          <svg viewBox="0 0 400 72" width="100%" height="72" preserveAspectRatio="none"><path d="M0 56C40 52 60 40 100 44S160 24 200 30 260 16 300 22 360 8 400 10" fill="none" stroke="#067A0A" stroke-width="2" stroke-linecap="round" vector-effect="non-scaling-stroke"></path></svg>
+          <div style="background:#fff;border-radius:16px;padding:14px 16px;font-size:14px;line-height:1.45;color:#4A463D;box-shadow:0 0 0 1px rgba(17,14,8,.07)"><b style="color:#110E08">2 tokens aren't counted.</b> We couldn't confirm you could sell them, so they stay out of your total.</div>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div style="font-size:15px;font-weight:600;color:#5E594E">Your holdings · 7</div>
+            <div style="background:#fff;border-radius:22px;overflow:hidden;box-shadow:0 0 0 1px rgba(17,14,8,.07)">
+              <sc-for list="{{ holdings }}" as="h" hint-placeholder-count="5">
+                <a href="{{ h.href }}" style="display:flex;align-items:center;gap:14px;padding:16px 18px;border-top:1px solid rgba(17,14,8,.07);opacity:{{ h.op }};text-decoration:none;color:#110E08;min-height:76px">
+                  <div style="width:44px;height:44px;border-radius:50%;background:{{ h.c }};color:#110E08;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:16px;flex:none">{{ h.l }}</div>
+                  <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:16px;display:flex;gap:8px;align-items:center">{{ h.name }}<span style="font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;background:{{ h.tbg }};color:{{ h.tfg }}">{{ h.tag }}</span></div><div style="color:#5E594E;font-size:14px;margin-top:2px">{{ h.amt }}</div></div>
+                  <div style="text-align:right"><div style="font-weight:700;font-size:16px;font-variant-numeric:tabular-nums">{{ h.val }}</div><div style="font-weight:600;font-size:14px;margin-top:2px;color:{{ h.pc }}">{{ h.pnl }}</div></div>
+                </a>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+        <sc-if value="{{ desk }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#110E08;color:#F7F5EF;border-radius:24px;padding:24px;display:flex;flex-direction:column;gap:16px">
+            <div style="font-family:'Newsreader',serif;font-size:26px;letter-spacing:-.02em;line-height:1.1">Safety at a glance</div>
+            <sc-for list="{{ glance }}" as="g" hint-placeholder-count="3"><div style="display:flex;align-items:center;gap:12px;font-size:15px"><span style="width:10px;height:10px;border-radius:50%;background:{{ g.c }}"></span><span style="flex:1">{{ g.k }}</span><b style="font-size:20px;font-variant-numeric:tabular-nums">{{ g.v }}</b></div></sc-for>
+            <div style="font-size:13px;line-height:1.5;color:#B9B3A6;border-top:1px solid rgba(255,255,255,.12);padding-top:14px">Open any token to see why it got its verdict.</div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+  </div>
+  <dc-import name="ProtoDock" page="Portfolio" hint-size="0px,0px"></dc-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { w: window.innerWidth, copied: false };
+  componentDidMount() { this.rs = () => this.setState({ w: window.innerWidth }); window.addEventListener('resize', this.rs); }
+  componentWillUnmount() { window.removeEventListener('resize', this.rs); }
+  renderVals() {
+    const d = this.state.w >= 1024, st = new URLSearchParams(window.location.search).get('state') || 'ready';
+    const G = '#067A0A', L = '#C8281E', AV = ['#E4DCC3', '#CFE3B4', '#F0D9A8', '#D8D2E8', '#C9DDE0', '#EBCFC4'];
+    const H = [['W', 'WETH', '0.42 WETH', '$1,386.20', '+1.8%', 1, 0, '', 1, 0], ['U', 'USDG', '2,410 USDG', '$2,410.00', '0.0%', 0, 1, '', 1, 0], ['H', 'HOOD-X', '4.20 HOOD-X', '$5,240.10', '+8.4%', 1, 2, '', 1, 0], ['R', 'ROBO', '12,000 ROBO', '$3,610.00', '+3.1%', 1, 3, '', 1, 0], ['P', 'PLUM', '860 PLUM', '$1,834.22', '−5.2%', -1, 4, 'Risky', 1, 1], ['U', 'USDT', '66 USDT', 'Not counted', 'Can’t confirm a sale', 0, 5, 'Danger', 0, 2], ['M', 'MOONCAT', '9.1M MOONCAT', '—', 'No price yet', 0, 3, 'Unchecked', 0, 2]];
+    const TS = { Risky: ['#FFEFCC', '#8A5300'], Danger: ['#FCE6E2', '#8F1D15'], Unchecked: ['#ECE9E1', '#5E594E'] };
+    return {
+      desk: d, padL: d ? '248px' : '0', padB: d ? '0' : '104px', pad: d ? '40px 48px 56px' : '24px 20px 32px', cols: d ? 'minmax(0,1fr) 300px' : '1fr', bal: d ? '72px' : '56px',
+      isLoading: st === 'loading', isError: st === 'error', isEmpty: st === 'empty', isReady: st === 'ready', skel: [1, 2, 3, 4, 5],
+      holdings: H.map(h => ({ l: h[0], name: h[1], amt: h[2], val: h[3], pnl: h[4], pc: h[5] > 0 ? G : h[5] < 0 ? L : '#5E594E', c: AV[h[6]], tag: h[7], tbg: h[7] ? TS[h[7]][0] : 'transparent', tfg: h[7] ? TS[h[7]][1] : 'transparent', op: h[8] ? 1 : .62, href: 'Safety.dc.html?t=' + [2, 0, 0, 0, 1, 2, 3][H.indexOf(h)] })),
+      glance: [{ k: 'Clean', v: 4, c: '#0A8F0E' }, { k: 'Risky', v: 1, c: '#E59A18' }, { k: 'Not counted', v: 2, c: '#B9B3A6' }],
+      copyAddr: () => { try { navigator.clipboard && navigator.clipboard.writeText('0x26a1a7c87f72fe37ca57ab92f24353ff12b1110a'); } catch (e) {} this.setState({ copied: true }); },
+      copyLabel: this.state.copied ? 'Address copied ✓' : 'Copy my address'
+    };
+  }
+}
+
+</script>
+</body>
+</html>

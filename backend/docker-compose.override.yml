@@ -1,0 +1,14 @@
+# Deployment-only override (NOT part of the app source; the repo's compose stays untouched).
+#
+# Why: eth_getLogs and eth_call have opposite node requirements on Robinhood Chain.
+#   * indexing/ranking/copy (worker) need WIDE eth_getLogs -> only the official node serves those
+#     for free, and it rate-limits (429) under volume;
+#   * the API (/portfolio, /safety, /auth/me) mostly does eth_call / eth_getCode / balances,
+#     where a keyed Alchemy endpoint is fast and never 429s.
+# One shared RPC_URL cannot satisfy both, and the client's failover does not yet route by method
+# (see the Opus task list), so the split is done per container here.
+services:
+  api:
+    environment:
+      RPC_URL: ${API_RPC_URL:?set API_RPC_URL in .env}
+      RPC_FALLBACK_URLS: ${API_RPC_FALLBACK_URLS:-}

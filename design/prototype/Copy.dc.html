@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#F7F5EF;font-family:'Albert Sans',system-ui,sans-serif;color:#110E08}a{color:#110E08}*{box-sizing:border-box}@keyframes cfshim{from{background-position:200% 0}to{background-position:-200% 0}}</style>
+</helmet>
+<div style="min-height:100vh;background:radial-gradient(ellipse 90% 30% at 50% -6%,rgba(204,255,0,.2),rgba(204,255,0,0) 100%),#F7F5EF;padding-left:{{ padL }};padding-bottom:{{ padB }}">
+  <dc-import name="AppNav" active="copy" hint-size="0px,0px"></dc-import>
+  <div style="max-width:1080px;margin:0 auto;padding:{{ pad }};display:flex;flex-direction:column;gap:24px">
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <div style="font-family:'Newsreader',serif;font-size:{{ title }};letter-spacing:-.03em;line-height:1.05">Smart wallets</div>
+      <div style="color:#4A463D;font-size:16px;line-height:1.5;max-width:560px">Traders ranked by what they actually made, not by followers. Copy a move with one tap.</div>
+    </div>
+
+    <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}"><div style="display:grid;grid-template-columns:{{ cols }};gap:14px"><sc-for list="{{ skel }}" as="k" hint-placeholder-count="3"><div style="height:220px;border-radius:24px;background:linear-gradient(90deg,#EEEADF,#F7F5EF,#EEEADF);background-size:200% 100%;animation:cfshim 1.4s ease-in-out infinite"></div></sc-for></div></sc-if>
+    <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;padding:80px 16px"><div style="width:56px;height:56px;border-radius:50%;background:#FCE6E2;color:#C8281E;font-family:'Newsreader',serif;font-size:30px;display:flex;align-items:center;justify-content:center">!</div><div style="font-family:'Newsreader',serif;font-size:32px;letter-spacing:-.02em">Couldn't load this</div><div style="color:#4A463D;font-size:16px;line-height:1.5">We couldn't load smart wallets. Your money is safe.</div><a href="?state=ready" style="margin-top:8px;height:52px;padding:0 32px;border-radius:99px;background:#110E08;color:#F7F5EF;font-weight:700;font-size:16px;display:inline-flex;align-items:center;text-decoration:none">Try again</a></div></sc-if>
+    <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;padding:80px 16px"><div style="width:56px;height:56px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px rgba(17,14,8,.1);display:flex;align-items:center;justify-content:center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#110E08" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8h12v12H8z M4 16V4h12"></path></svg></div><div style="font-family:'Newsreader',serif;font-size:32px;letter-spacing:-.02em">No smart wallets right now</div><div style="color:#4A463D;font-size:16px;line-height:1.5;max-width:340px">Check back soon. We'll show traders worth following here.</div><a href="?state=ready" style="margin-top:8px;height:52px;padding:0 32px;border-radius:99px;background:#110E08;color:#F7F5EF;font-weight:700;font-size:16px;display:inline-flex;align-items:center;text-decoration:none">Refresh</a></div></sc-if>
+
+    <sc-if value="{{ isReady }}" hint-placeholder-val="{{ false }}">
+      <div style="font-size:15px;font-weight:600;color:#5E594E">Worth following</div>
+      <div style="display:grid;grid-template-columns:{{ cols2 }};gap:14px">
+        <sc-for list="{{ suggested }}" as="w" hint-placeholder-count="2">
+          <div style="background:#fff;border-radius:24px;padding:20px;display:flex;flex-direction:column;gap:14px;box-shadow:0 0 0 1px rgba(17,14,8,.07)">
+            <div style="display:flex;align-items:center;gap:12px"><div style="width:44px;height:44px;border-radius:50%;background:{{ w.c }};display:flex;align-items:center;justify-content:center;font-weight:700">{{ w.l }}</div><div style="flex:1"><div style="font-weight:700;font-size:16px;font-variant-numeric:tabular-nums">{{ w.addr }}</div><div style="font-size:14px;font-weight:600;color:#067A0A;margin-top:2px">{{ w.pnl }}</div></div><div style="font-size:13px;font-weight:700;padding:5px 11px;border-radius:99px;background:{{ w.tbg }};color:{{ w.tfg }}">{{ w.tag }}</div></div>
+            <div style="display:flex;gap:18px;font-size:13px;color:#5E594E"><span><b style="color:#110E08;font-size:16px">{{ w.wins }}</b> wins</span><span><b style="color:#110E08;font-size:16px">{{ w.losses }}</b> losses</span><span><b style="color:#110E08;font-size:16px">{{ w.early }}</b> early buys</span></div>
+            <div style="font-size:15px;color:#4A463D;line-height:1.5">{{ w.why }}</div>
+            <button onClick="{{ w.toggle }}" style="height:48px;border-radius:99px;border:0;background:{{ w.bg }};color:{{ w.fg }};box-shadow:{{ w.bd }};font-weight:700;font-size:16px;cursor:pointer;font-family:inherit">{{ w.btn }}</button>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font-size:15px;font-weight:600;color:#5E594E;margin-top:6px">Latest moves</div>
+      <div style="display:grid;grid-template-columns:{{ cols }};gap:14px">
+        <sc-for list="{{ moves }}" as="w" hint-placeholder-count="3">
+          <div style="background:#fff;border-radius:24px;padding:20px;display:flex;flex-direction:column;gap:12px;box-shadow:0 0 0 1px rgba(17,14,8,.07)">
+            <div style="display:flex;align-items:center;gap:12px"><div style="width:44px;height:44px;border-radius:50%;background:{{ w.c }};display:flex;align-items:center;justify-content:center;font-weight:700">{{ w.l }}</div><div style="flex:1"><div style="font-weight:700;font-size:16px;font-variant-numeric:tabular-nums">{{ w.addr }}</div><div style="font-size:14px;color:#5E594E;margin-top:2px">{{ w.ago }}</div></div><div style="font-size:13px;font-weight:700;padding:5px 11px;border-radius:99px;background:{{ w.tbg }};color:{{ w.tfg }}">{{ w.tag }}</div></div>
+            <div style="font-family:'Newsreader',serif;font-size:28px;letter-spacing:-.02em;line-height:1.1">{{ w.action }}</div>
+            <a href="{{ w.href }}" style="align-self:flex-start;font-size:13px;font-weight:700;padding:5px 11px;border-radius:99px;background:{{ w.vbg }};color:{{ w.vfg }};text-decoration:none">{{ w.vtext }} →</a>
+            <div style="font-size:15px;color:#4A463D;line-height:1.5">{{ w.why }}</div>
+            <button onClick="{{ w.toggle }}" style="height:48px;border-radius:99px;border:0;background:{{ w.bg }};color:{{ w.fg }};box-shadow:{{ w.bd }};font-weight:700;font-size:16px;cursor:pointer;font-family:inherit">{{ w.btn }}</button>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </div>
+  <dc-import name="ProtoDock" page="Copy" hint-size="0px,0px"></dc-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { w: window.innerWidth, on: { m0: true } };
+  componentDidMount() { this.rs = () => this.setState({ w: window.innerWidth }); window.addEventListener('resize', this.rs); }
+  componentWillUnmount() { window.removeEventListener('resize', this.rs); }
+  renderVals() {
+    const d = this.state.w >= 1024, st = new URLSearchParams(window.location.search).get('state') || 'ready', INK = '#110E08', PAPER = '#F7F5EF';
+    const AV = ['#E4DCC3', '#CFE3B4', '#F0D9A8', '#D8D2E8', '#C9DDE0'];
+    const tags = { low: ['Low risk', '#E4F6DD', '#067A0A'], med: ['Medium risk', '#FFEFCC', '#8A5300'], high: ['High risk', '#FCE6E2', '#8F1D15'] };
+    const VT = { CLEAN: ['Clean', '#E4F6DD', '#0D3B10'], RISKY: ['Risky', '#FFEFCC', '#4A2C00'], DANGER: ['Danger', '#FCE6E2', '#5E120C'] };
+    const btn = (key) => { const on = !!this.state.on[key]; return { btn: on ? 'Copying ✓' : 'Copy', bg: on ? 'transparent' : INK, fg: on ? INK : PAPER, bd: on ? 'inset 0 0 0 1.5px #110E08' : 'none', toggle: () => this.setState(s => ({ on: { ...s.on, [key]: !s.on[key] } })) }; };
+    const S = [{ l: 'A', c: AV[1], addr: '0x8c1e…a42f', t: 'low', pnl: '+$48,210 realised', wins: 27, losses: 4, early: 11, why: 'Profit on 9 of its last 10 closed trades. Buys only tokens that pass our safety check.' }, { l: 'B', c: AV[0], addr: '0x3fd0…19bc', t: 'med', pnl: '+$19,640 realised', wins: 14, losses: 9, early: 6, why: 'Early into tokens that later grew. Sometimes picks smaller, riskier ones.' }];
+    const Mv = [{ l: 'A', c: AV[1], addr: '0x8c1e…a42f', ago: '12 min ago', t: 'low', action: 'Bought $2,500 of HOOD-X', v: 'CLEAN', n: 0, why: 'Profit on 9 of its last 10 closed trades. Buys only tokens that pass our safety check.' }, { l: 'B', c: AV[0], addr: '0x3fd0…19bc', ago: '1 hr ago', t: 'med', action: 'Bought $800 of PLUM', v: 'RISKY', n: 1, why: 'Early into tokens that later grew. Sometimes picks smaller, riskier ones.' }, { l: 'C', c: AV[3], addr: '0xe27a…5d03', ago: '3 hr ago', t: 'high', action: 'Sold $4,100 of ROBO', v: 'CLEAN', n: 0, why: 'Trades often and takes big bets. Wins are large, and so are the losses.' }];
+    return {
+      padL: d ? '248px' : '0', padB: d ? '0' : '104px', pad: d ? '40px 48px 56px' : '24px 20px 32px', title: d ? '52px' : '40px', cols: d ? '1fr 1fr 1fr' : '1fr', cols2: d ? '1fr 1fr' : '1fr',
+      isLoading: st === 'loading', isError: st === 'error', isEmpty: st === 'empty', isReady: st === 'ready', skel: [1, 2, 3],
+      suggested: S.map((w, i) => ({ ...w, tag: tags[w.t][0], tbg: tags[w.t][1], tfg: tags[w.t][2], ...btn('s' + i) })),
+      moves: Mv.map((w, i) => ({ ...w, tag: tags[w.t][0], tbg: tags[w.t][1], tfg: tags[w.t][2], vtext: VT[w.v][0] + ' token', vbg: VT[w.v][1], vfg: VT[w.v][2], href: 'Safety.dc.html?t=' + w.n, ...btn('m' + i) }))
+    };
+  }
+}
+
+</script>
+</body>
+</html>
